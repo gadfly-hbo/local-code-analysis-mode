@@ -1,7 +1,5 @@
-import { readFileSync } from "node:fs";
 import { UserError } from "../workspace.ts";
-import { FixtureCaller, type FixtureTurn } from "./fixture-caller.ts";
-import { createPiCaller } from "./pi-caller.ts";
+import { createCaller } from "./caller.ts";
 import type { ModelCaller } from "./types.ts";
 
 /**
@@ -14,24 +12,17 @@ export function createCallerFromEnv(
   env: NodeJS.ProcessEnv = process.env,
 ): ModelCaller {
   if (env.XANTHIL_LLM_FIXTURE) {
-    let raw: string;
-    try {
-      raw = readFileSync(env.XANTHIL_LLM_FIXTURE, "utf8");
-    } catch {
-      throw new UserError(
-        `cannot read fixture file: ${env.XANTHIL_LLM_FIXTURE}`,
-      );
-    }
-    const turns: FixtureTurn[] = raw
-      .split("\n")
-      .filter((line) => line.trim().length > 0)
-      .map((line) => ({ response: line }));
-    return new FixtureCaller(turns, `${env.XANTHIL_LLM_FIXTURE}.consumed`);
+    return createCaller({
+      kind: "fixture",
+      fixturePath: env.XANTHIL_LLM_FIXTURE,
+    });
   }
   if (env.XANTHIL_LLM_BASE_URL && env.XANTHIL_LLM_MODEL) {
-    return createPiCaller({
+    return createCaller({
+      kind: "openai-compatible",
       baseUrl: env.XANTHIL_LLM_BASE_URL,
       model: env.XANTHIL_LLM_MODEL,
+      apiKey: env.XANTHIL_LLM_API_KEY ?? "",
     });
   }
   throw new UserError(

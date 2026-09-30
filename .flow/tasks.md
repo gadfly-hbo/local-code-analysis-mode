@@ -66,3 +66,13 @@
 - [x] R15（P3）AGENTS.md 不变量补模式 A 信封
 - [x] R16（P3）病态 xlsx CLI 端到端断言
 - 记录不改：R10（completeModeS/A 重复代码，重构味道）；UNVERIFIED（信封 schema_card 是否纳入授权绑定、并发 sent_count 竞态 → M3 议题）
+
+
+---
+
+# M3（适配层先行）切片与修复记录（2026-09-30）
+
+- [x] 0. 适配层核心：createXanthilCore facade + 参数式 caller + 接缝 e2e/canary
+- [x] 1. Desktop 参考接线（REFERENCE）+ INTEGRATION.md runbook
+- [x] 2. README 适配层章节 + docs/m3-exit-report.md
+- 修复周期 1（审查 P0/P1）：literal-key auth + worker env 剥离实测；模式 A 注入 caller 全链；J8/导出/UserError/去重；reference 诚实化

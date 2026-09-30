@@ -160,6 +160,13 @@ export function runIsolated(spec: IsolationSpec): IsolationResult {
     // losing venv activation; force site-packages onto sys.path explicitly.
     PYTHONPATH: workerSitePackages(),
   };
+  // §8.2: model credentials must NEVER enter the worker environment — strip
+  // every XANTHIL_LLM_* key regardless of how the caller was configured.
+  for (const key of Object.keys(env)) {
+    if (key.startsWith("XANTHIL_LLM_")) {
+      delete env[key];
+    }
+  }
   delete env.XANTHIL_SANDBOX_EXEC;
 
   const result = spawnSync(

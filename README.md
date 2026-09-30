@@ -55,6 +55,20 @@ xanthil publications                           # 发布清单与状态
 
 离线/测试：`XANTHIL_LLM_FIXTURE=<file.jsonl>` 夹具回放（每行一个模型响应，消费状态跨进程持久）。真实端点冒烟：`scripts/smoke-real.sh`；模式 S 成功率度量：`scripts/measure-mode-s.sh`。
 
+宿主嵌入（M3，Xanthil Desktop 等进程内消费者）——`createXanthilCore` 库 API：
+
+```ts
+import { createXanthilCore } from "./host/src/adapter/xanthil-core.ts";
+const core = createXanthilCore({
+  workspaceDir: "<dir>/.xanthil",   // .xanthil 目录本身（与 --workspace 一致）
+  model: { kind: "openai-compatible", baseUrl, model, apiKey }, // 凭据仅内存
+});
+core.init();
+await core.datasets.register(csvPath, "sales"); // …与 CLI 同核（共享模块）
+```
+
+Desktop 参考接线与采纳手册见 [desktop-adapter/INTEGRATION.md](desktop-adapter/INTEGRATION.md)。
+
 ## 架构
 
 ```
@@ -80,7 +94,7 @@ worker/ (Python 3.12, uv)
 ## 已知限制（诚实清单）
 
 - 模式 A 发布为单数据集、固定模板（sum/count/count_distinct/avg × 维度 + month() + 基础筛选）；SQL/join/自定义表达式、组合差分查询自动防护（§6.7 本版声明不承诺）、解释自动多轮 → 后置。
-- GUI、Desktop 集成、XLSX 宏/多表头自动理解（显式拒绝）→ M3+。
+- GUI 与 Desktop 侧 UI/契约落地（本仓库已交付适配层 API 与参考接线，采纳属 JuanerAI Change/PR）；XLSX 宏/多表头自动理解（显式拒绝）。
 - Linux/Windows 隔离后端为接口占位；未过后端自检的平台拒绝执行（fail-closed）。
 - 内核作用域固定为启动时已注册数据集；新增注册需新内核。
 - 取消覆盖未运行态（cancel 命令）与会话中断（SIGINT）；一次性 `run` 为同步进程，Ctrl-C 可能遗留沙箱子进程（无外发通道，见 m2-exit-report）。

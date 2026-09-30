@@ -25,6 +25,8 @@ import type {
 export interface PiCallerConfig {
   baseUrl: string;
   model: string;
+  /** Literal key (param-injected callers). When absent, env auth is used. */
+  apiKey?: string;
 }
 
 export function createPiCaller(config: PiCallerConfig): ModelCaller {
@@ -44,7 +46,22 @@ export function createPiCaller(config: PiCallerConfig): ModelCaller {
   const provider: Provider<"openai-completions"> = createProvider({
     id: "xanthil",
     baseUrl: config.baseUrl,
-    auth: { apiKey: envApiKeyAuth("Xanthil LLM", ["XANTHIL_LLM_API_KEY"]) },
+    auth: {
+      apiKey: config.apiKey
+        ? {
+            name: "Xanthil LLM",
+            // Literal-key auth: resolve() returns a fixed credential so the
+            // key NEVER transits process.env (P0 fix, §8.2).
+            resolve: async () => ({
+              auth: {
+                apiKey: config.apiKey as string,
+                baseUrl: config.baseUrl,
+              },
+              source: "injected",
+            }),
+          }
+        : envApiKeyAuth("Xanthil LLM", ["XANTHIL_LLM_API_KEY"]),
+    },
     models: [model],
     api: {
       "openai-completions": {

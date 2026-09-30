@@ -1,53 +1,46 @@
-# Red-Team: M2 正式 MVP 增量（XLSX/Parquet + 模式 A 可信聚合发布 + 授权 + 审计）
+# Red-Team: M3 Desktop 产品化（跨仓库集成）
 
-评审日期：2026-09-30｜对象：`.flow/proposal.md` §4.2/§6.7/§8/§10/§11/§13.2/§14（M2 范围）+ 已交付 M0/M1 代码基线（db70d28）。
-前置：上一 flow 全量红队（KA1–KA5）已随 M0/M1 交付消解或受控，本文只攻击 M2 增量的承重假设。
+评审日期：2026-09-30｜对象：proposal §1.3/§16/§17.1-M3 + 实勘 `~/JuanerAI`（apps/desktop、packages/contracts/xanthil-desktop-ipc.ts、AGENTS.md 宪法）。
 
-## Top Kill-Assumptions (ranked)
+## 实勘结论（先于假设）
 
-### KA-M2-1. 可信发布模板的表达力足以覆盖 §12 示例级真实问题
-- **Claim:** 用户批准的指标/维度/筛选模板（sum/count/avg/count_distinct × 维度分组）经可信服务重算，能回答 §12 销售下降示例这类问题（净销售额、去重订单数、客单价按品类/月份）。
-- **Steelman:** 示例指标全部可分解为模板聚合：净额=sum(net)、订单数=count_distinct(order_id)、客单价由两条指标相除（模型解读而非工具计算）——符合「首批已定义指标与聚合模板」的 MVP 定位（§13.2 结果发布行）。
-- **Fails if:** 模板漏掉 count_distinct（多字段口径）或同计划多指标能力，§12 示例无法一次发布 → 模式 A 沦为演示品。
-- **Evidence this week:** 以 §12 数据写成的端到端发布测试（品类×月份、三指标）必须一次跑通。
-- **Kill criterion:** 模板集无法表达 §12 全部三指标 → 扩模板（join 前置/比率指标）或明示降级。
-- **Cheapest test:** 发布管道 e2e 测试（在切片验收内）。
+- **Desktop 存在且活跃**：Electron 应用（main/preload/renderer + case-assistant 工作台），IPC 契约 18 个请求类型（openSession/startAnalysis/decideAssistanceDisclosure/…），main 分支今天仍有提交（#48/#49）。
+- **治理约束**：JuanerAI 宪法（AGENTS.md）权威链要求用户批准 > 宪法/Blueprint > OpenSpec > 设计 > 测试；开发走 Change/PR 流程；且宪法明言「pending Xanthil Desktop 与 Model Pack 开发计划已于 2026-09-18 撤回作废」。UI 须复用 PX-2026-004/006 契约模式。
+- **我们这边**：工具核心（CLI + 模式 S/A 边界）已交付且对抗验证（M0–M2）；但尚无**程序化入口**（只有 CLI 进程界面），Desktop 无法以库形式复用。
 
-### KA-M2-2. 模式 A 信封不成为新的走私通道（P06 核心）
-- **Claim:** 出站网关的模式 A 路径只接受 Host 生成、绑定授权摘要的 `ModelSafeEnvelope`（§10.4），任意 Python 输出/自由文本无法伪装成「聚合摘要」出站。
-- **Steelman:** 信封内容=纯结构化数值 + 白名单维度的维度值 + 固定标签；维度值本身是数据派生的，但其暴露范围=用户在 preview 中逐值确认过的（§5.3 预览语义）。
-- **Fails if:** 信封混入自由文本字段、未白名单的维度值、或 worker 产出的任意 DataFrame 值未重算即外发。
-- **Kill criterion:** 对抗测试中出现任一未批准字符串可到达 provider 边界 → 阻断发布并修。
-- **Cheapest test:** P06 对抗套件（伪装聚合/编码数字/非白名单维度）。
+## Top Kill-Assumptions
 
-### KA-M2-3. XLSX「规范表格」假设在真实文件上成立
-- **Claim:** `.xlsx` 走 pandas(openpyxl) dtype=str 单表读取，合并单元格/多表头/宏被明确拒绝且报错可懂（F01 后半）。
-- **Fails if:** 常见导出器（Excel/WPS/Numbers）产出的文件在 dtype=str 契约下静默错位（合并首列为 NaN 等），且无明确提示。
-- **Kill criterion:** 三源合成样本中任一静默错位 → 收紧为显式预检（空表头/重复列名/NaN 表头即拒）。
-- **Cheapest test:** 构造 3 类病态 xlsx 的导入测试。
+### KA-M3-1. 跨仓库写入策略（最大风险）
+- **Claim**: M3 = 把工具核心接入 Desktop。
+- **Fails if**: 未经 JuanerAI 自身流程直接改写其治理仓库（甚至提交 main）——违反其宪法与用户全局规则（写入限授权范围）；PR 流程也无法在本会话内由我单方完成。
+- **处置**: 本 flow 不直接写 JuanerAI。产出=①本仓库的**适配层包**（稳定 TS facade，Desktop 可作依赖消费）+ ②Desktop 侧**参考接线代码**（以独立文件/补丁形态随本仓库交付，附集成 runbook，由用户走其 Change/PR 流程采纳）。此为范围重解释，交 PRD diff 门裁决。
 
-### KA-M2-4. 授权绑定检查真的拦得住替换（P08/P10）
-- **Claim:** 发送时逐项复核：载荷摘要、数据版本、目标模型、过期、撤销、次数上限——任一变化即阻断，不回退放行。
-- **Fails if:** 摘要用未规范化 JSON 计算（键序漂移导致绕过）、或 revoke 后仍读旧缓存授权。
-- **Cheapest test:** P08/P10 对抗用例（换模型/改数据/过期/撤销后发送全部被拒）。
+### KA-M3-2. 复用而不重建
+- **Claim**: §1.3「复用现有会话、Agent、模型配置和工作区，不再建设第二套」。
+- **Fails if**: 适配层自行造会话/密钥/UI。落地：适配层只暴露数据集/Schema/任务/发布/审计的编程 API；模型凭据仍由调用方（Desktop 的 provider 设置）注入 env；不新建任何模型通道（一切出站仍走本仓库唯一网关）。
 
-### KA-M2-5. 范围与预算（老 KA3 的 M2 版）
-- **Fails if:** M2 切片（发布管道是全新子系统：plan/重算/校验/授权/信封/撤销/对抗）超出预算挤压 REVIEW/SHIP。
-- **Kill criterion:** 拆解后切片预估超预算 2 倍 → 砍到「发布管道 + F01」为硬核，F02 机检/取消命令等披露后置。
+### KA-M3-3. 不引入旁路数据出站（M3 退出条件）
+- **Claim**: 接入 Desktop 后边界不变。
+- **Steelsman**: 适配层是进程内薄封装（调用与 CLI 相同的核心模块），不新增文件读取/网络/日志路径；对抗测试在**适配层接缝**复跑（信封精确断言 + canary）。
+- **Fails if**: 为了「报告交付」把工件内容直接递给 Desktop 的模型会话。落地：报告交付=本地工件路径/预览引用 + 用户显式导出；给模型的只有经网关的模式 S/A 信封。
+
+### KA-M3-4. 进程模型
+- Desktop（Electron main）调用方式：适配层以**库**形态同进程调用，还是 spawn CLI 子进程？库形态=最优（类型安全、状态共享）；但 worker 沙箱子进程本就是核心一部分，无碍。选库形态，CLI 保留为薄入口。
+
+### KA-M3-5. 范围与预算
+- Electron UI 全面改造不在本 flow（那是 JuanerAI 侧 Change）。本 flow 交付=适配层 + 参考接线 + 契约测试 + runbook。
 
 ## What's Well-Reasoned
 
-- 「可信发布=按批准计划在同版本数据上重算，不信任任意 Python 输出」（§6.7）从根上免除了「判断任意输出是否安全」这一不可判定问题——工程上唯一站得住的模式 A 形态。
-- 授权绑定「载荷摘要+数据版本+任务目的+目标模型」（§10.4）四元组覆盖了 P08 全部替换向量。
-- §11.3 把发布状态与任务状态分离（「运行成功但发布被阻断」是合法状态）——避免把隐私阻断误报为分析失败。
-- 上一 flow 已验证的出站网关/沙箱/审计基础设施直接复用，M2 是纯增量。
+- proposal §1.3 早已预判「不是先做大型独立应用再集成」——适配层先行正合本意。
+- 核心边界（网关/沙箱/审计）已被 M0–M2 对抗验证，M3 只是加一个进程内消费者，不改边界本身。
+- Desktop IPC 契约中 decideAssistanceDisclosure 的「逐次披露」语义与本工具模式 A 的授权语义天然对齐。
 
 ## What I Couldn't Assess
 
-- 真实 GLM 对聚合证据的解读质量（需真实 key，冒烟脚本验证）。
-- 差分查询组合推断（§6.7 明示本版不承诺差分隐私；多发布间组合风险以审计+人工确认为界）。
-- Windows/Linux 下 xlsx 读取行为（本环境 darwin）。
+- JuanerAI 侧 UI 契约（PX-2026-004/006）细节与 Change 流程的实际周期——参考接线只能力求「可采纳」而非「已采纳」。
+- Desktop 内嵌模型会话的 provider 机制细节（参考接线按 env 注入设计，留适配点）。
 
 ## Verdict
 
-**go** —— 无 kill 准则已满足。最脆弱的 KA-M2-1/KA-M2-2 恰是 M2 切片的直接验收项（先测表达力与对抗）。进入 PRD。
+**go（附范围重解释 KA-M3-1，交 PRD diff 门裁决）**——Desktop 前提成立；跨仓库治理约束决定「适配层先行、不写对方仓库」的路径。无 kill 准则被满足。

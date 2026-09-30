@@ -607,6 +607,13 @@ function recomputePayload(
   return { canonical: canonicalJson(reply.result), result: reply.result };
 }
 
+/** Model identity for authorization binding: fixture | <model id>. */
+function modelIdentityOf(caller: import("./llm/types.ts").ModelCaller): string {
+  return caller.name === "fixture"
+    ? "fixture"
+    : caller.name.replace(/^pi:/, "");
+}
+
 function currentTargetModel(): string {
   if (process.env.XANTHIL_LLM_FIXTURE) {
     return "fixture";
@@ -618,6 +625,7 @@ function currentTargetModel(): string {
 export async function sendPublication(
   ws: Workspace,
   publicationId: string,
+  injectedCaller?: import("./llm/types.ts").ModelCaller,
 ): Promise<{ status: string; reply?: string; block_reason?: string }> {
   const pub = getPublication(ws, publicationId);
   if (
@@ -656,7 +664,9 @@ export async function sendPublication(
   if (appr.sent_count >= appr.max_sends) {
     return block(`max_sends (${appr.max_sends}) reached`);
   }
-  const currentModel = currentTargetModel();
+  const currentModel = injectedCaller
+    ? modelIdentityOf(injectedCaller)
+    : currentTargetModel();
   if (!currentModel || currentModel !== appr.target_model) {
     return block(
       `target model mismatch: approval binds "${appr.target_model}", current endpoint is "${currentModel || "unset"}"`,
@@ -729,7 +739,10 @@ export async function sendPublication(
   // Caller is constructed only AFTER every authorization check passed: a
   // blocked send must never depend on provider availability (§11.4).
   const { createCallerFromEnv } = await import("./llm/index.ts");
-  const gateway = createEgressGateway(ws, createCallerFromEnv());
+  const gateway = createEgressGateway(
+    ws,
+    injectedCaller ?? createCallerFromEnv(),
+  );
 
   const envelope = {
     system: MODE_A_SYSTEM,
