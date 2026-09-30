@@ -45,7 +45,8 @@ const MIGRATIONS = [
     payload_sha256 TEXT,
     block_reason TEXT,
     data_versions TEXT NOT NULL,
-    datasets TEXT NOT NULL
+    datasets TEXT NOT NULL,
+    policy_version TEXT
   )`,
   `CREATE TABLE IF NOT EXISTS approvals (
     id TEXT PRIMARY KEY,
@@ -103,6 +104,13 @@ export function openWorkspace(wsPath: string): Workspace {
   const db = new DatabaseSync(dbFile);
   for (const migration of MIGRATIONS) {
     db.exec(migration);
+  }
+  // Additive column migrations for workspaces created before the column
+  // existed (CREATE TABLE IF NOT EXISTS does not retrofit old tables).
+  try {
+    db.exec("ALTER TABLE publications ADD COLUMN policy_version TEXT");
+  } catch {
+    // column already present
   }
   return { root: wsPath, db };
 }

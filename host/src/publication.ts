@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import YAML from "yaml";
+import { enforcePolicyOnPlan, policyVersion } from "./policy.ts";
 import { runWorkerModule } from "./profiler.ts";
 import { getApprovedCard } from "./schema.ts";
 import { UserError, type Workspace } from "./workspace.ts";
@@ -10,8 +11,19 @@ import { UserError, type Workspace } from "./workspace.ts";
 
 export interface PublicationMetric {
   name: string;
-  agg: "sum" | "count" | "count_distinct" | "avg";
+  agg:
+    | "sum"
+    | "count"
+    | "count_distinct"
+    | "avg"
+    | "mean"
+    | "median"
+    | "std"
+    | "ratio";
   field: string;
+  /** ratio only: both must be approved card columns. */
+  numerator?: string;
+  denominator?: string;
 }
 
 export interface PublicationPlan {
@@ -40,7 +52,16 @@ export interface PublicationRow {
   data_versions: Record<string, string>;
 }
 
-const AGGS = new Set(["sum", "count", "count_distinct", "avg"]);
+const AGGS = new Set([
+  "sum",
+  "count",
+  "count_distinct",
+  "avg",
+  "mean",
+  "median",
+  "std",
+  "ratio",
+]);
 const MAX_RESULT_ROWS = 200;
 
 /** Deterministic JSON (sorted keys, recursively) — P08 guard against key-order drift. */
@@ -162,13 +183,35 @@ export function parsePublicationPlan(
     const metric = m as Record<string, unknown>;
     if (
       typeof metric.name !== "string" ||
-      typeof metric.field !== "string" ||
       typeof metric.agg !== "string" ||
       !AGGS.has(metric.agg)
     ) {
       throw new UserError(
-        `metrics[${i}] must be {name, agg: sum|count|count_distinct|avg, field}`,
+        `metrics[${i}] must be {name, agg: ${[...AGGS].join("|")}, field} (ratio uses numerator/denominator instead of field)`,
       );
+    }
+    if (metric.agg === "ratio") {
+      // E1: ratio carries numerator/denominator (both approved card columns).
+      for (const part of ["numerator", "denominator"]) {
+        if (
+          typeof metric[part] !== "string" ||
+          !inCard(metric[part] as string)
+        ) {
+          throw new UserError(
+            `metrics[${i}].${part} "${String(metric[part])}" is not a column of "${dataset}"`,
+          );
+        }
+      }
+      return {
+        name: metric.name,
+        agg: "ratio",
+        field: "",
+        numerator: metric.numerator as string,
+        denominator: metric.denominator as string,
+      };
+    }
+    if (typeof metric.field !== "string") {
+      throw new UserError(`metrics[${i}].field must be a column name`);
     }
     if (!inCard(metric.field)) {
       throw new UserError(
@@ -246,6 +289,43 @@ export function preparePublication(
     throw new UserError(`cannot read publication plan: ${planPath}`);
   }
   const plan = parsePublicationPlan(ws, raw);
+  // E3: organizational floors — violations are graceful blocks (§11.4).
+  try {
+    enforcePolicyOnPlan(ws, {
+      target_model: plan.target_model,
+      min_subjects: plan.min_subjects,
+      metrics: plan.metrics,
+      dimensions: plan.dimensions,
+    });
+  } catch (error) {
+    const id0 = `pub_${randomUUID().slice(0, 12)}`;
+    const reason = error instanceof Error ? error.message : String(error);
+    ws.db
+      .prepare(
+        "INSERT INTO publications (id, at, purpose, plan_digest, plan_json, status, payload_json, payload_sha256, block_reason, data_versions, datasets, policy_version) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, '{}', '[]', ?)",
+      )
+      .run(
+        id0,
+        new Date().toISOString(),
+        plan.purpose,
+        "",
+        "",
+        "blocked",
+        reason,
+        policyVersion(ws),
+      );
+    return {
+      id: id0,
+      at: new Date().toISOString(),
+      purpose: plan.purpose,
+      plan_digest: "",
+      status: "blocked",
+      payload_sha256: null,
+      block_reason: reason,
+      datasets: plan.datasets,
+      data_versions: {},
+    };
+  }
   const alias = plan.datasets[0] as string;
   const planJson = canonicalJson(plan);
   const planDigest = sha256Hex(planJson);
@@ -274,7 +354,7 @@ export function preparePublication(
     const payloadSha = payload === null ? null : sha256Hex(payload);
     ws.db
       .prepare(
-        "INSERT INTO publications (id, at, purpose, plan_digest, plan_json, status, payload_json, payload_sha256, block_reason, data_versions, datasets) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO publications (id, at, purpose, plan_digest, plan_json, status, payload_json, payload_sha256, block_reason, data_versions, datasets, policy_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       )
       .run(
         id,
@@ -288,6 +368,7 @@ export function preparePublication(
         blockReason,
         JSON.stringify(dataVersions),
         JSON.stringify(plan.datasets),
+        policyVersion(ws),
       );
     return {
       id,

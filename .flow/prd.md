@@ -1,56 +1,45 @@
-# PRD：M3 Desktop 产品化 — 适配层先行（adapter-first）
+# PRD：M4 能力扩展 — 发布模板扩展 + 参数化 Skill + 工作区策略
 
-> 事实源：`.flow/proposal.md` §1.3/§16/§17.1-M3 + `.flow/red-team.md`（含实勘）。基线：M0–M2（00c67e5）。G1–G16 / H1–H12 继续有效。
+> 事实源：`.flow/proposal.md` §6.7/§13.3/§17.1-M4 + `.flow/red-team.md`（候选证据排序）。基线：M0–M3（3b6a99b）。既有决议（G/H/J 系）继续有效。
+> M4 退出条件（§17.1）：**每项扩展具备独立契约与回归测试。**
 
 ## Problem Statement
 
-Xanthil Desktop 已存在且活跃（Electron + IPC 契约 + 案例工作台），但本工具只有 CLI 进程界面——Desktop 无法以库形态复用工具核心；同时 JuanerAI 是宪法治理的独立仓库（OpenSpec/Change/PR 流程），本 flow 无权直接改写其代码。M3 需要在不越权写对方仓库的前提下，让 Desktop 具备「零成本采纳」的接入面。
+三个由已交付产品自身暴露的缺口：① §12 示例的客单价（比率指标）无法用单模板表达，均值/波动类解读缺 agg；② 高频分析（月度对比、品类贡献）每次都消耗模型调用与修复轮，且不可参数化复用；③ 方案 §10.3 的 `policy_version`/§6.7 的「政策」从未落地为工作区级强制配置——min_subjects、目标模型等散落在用户每次手填的 plan 里，无企业级下限。
 
-## Solution（范围重解释，见 diff 门）
+## Solution（三项扩展，各自独立契约）
 
-1. **适配层包（本仓库 `host/src/adapter/`）**：稳定 TS facade `createXanthilCore()`——进程内暴露 workspace/dataset/profile+schema approve/ask+confirm+run/session/publication(plan→prepare→approve→send→revoke)/audit/export 的编程 API；模型凭据由调用方注入（env 透传），无任何新增模型通道/文件/网络路径。
-2. **Desktop 参考接线（本仓库 `desktop-adapter/`，非 JuanerAI 写入）**：按其 IPC 契约（xanthil-desktop-ipc.ts 的请求类型）给出的参考实现文件（如 `analysis-adapter.reference.ts`）+ `INTEGRATION.md` runbook（如何在 JuanerAI 走 Change/PR 采纳、会话/凭据如何桥接、报告交付=本地工件引用而非内容直传模型）。
-3. **接缝级对抗回归**：适配层入口复跑 canary/信封精确断言（证明「不引入旁路数据出站」对库消费者同样成立）。
-4. CLI 与适配层共用同一核心模块（CLI 变薄壳，防止两套行为漂移）。
+**E1 发布模板扩展**：worker/publish.py 新增 agg `mean/median/std` 与派生指标 `ratio{numerator, denominator}`（两字段均为已批准卡内字段）；分母为零或绝对值 <1e-9 → 该 plan blocked（§12.2 除法防护），错误信息结构性（字段名，无值）。信封/校验/精度链路全部复用既有模式 A 管道。
+
+**E2 参数化分析 Skill（本地确定性）**：内置 skill `monthly_compare`（日期字段+值字段+主体 → 逐月 sum/count_distinct + 环比的分析任务 spec）与 `category_contribution`（品类贡献分解）。`xanthil skill run <name> --param k=v` 与适配层 `core.skills.run(name, params)`：**本地确定性生成 AnalysisTaskSpec → 落库 awaiting_confirmation → 走既有 confirm/run 状态机**；零模型调用（出站审计零增长）；生成的代码使用与模型生成完全相同的 ctx 契约与沙箱。
+
+**E3 工作区策略**：`.xanthil/policy.yaml`（Host 单写方；`xanthil policy set/show`；版本=canonical sha256 前 8 位）：`allowed_target_models[]`、`min_subjects_floor`、`max_metrics_per_plan`、`banned_dimensions[]`、`require_checks_on_approve`。强制点：publish plan 校验（违规 prepare 即 blocked，reason 前缀 `policy:`）；approve 卡校验（require_checks）。无 policy 文件=不限制（向后兼容）。策略文件位于 /Users 工作区内——沙箱读禁令已保证 worker 不可读写。
 
 ## User Stories
 
-1. As a Desktop 开发者, I want 以库形态调用工具核心（含沙箱 worker 与持久内核）, so that 不必解析 CLI stdout。
-2. As a Desktop 开发者, I want 参考接线与 runbook 对齐我家 IPC 契约, so that 采纳是一条 Change 的事而非重写。
-3. As a 隐私敏感用户, I want 从 Desktop 触发的每条模型调用仍只经唯一网关且可审计, so that 接入不产生新出站路径。
-4. As a 隐私敏感用户, I want 报告交付拿到的是本地工件引用/预览, so that 报告生成不会变成数据出口。
-5. As a Desktop 开发者, I want 适配层的错误/阻断（blocked/expired/drift）以结构化结果返回, so that UI 能如实呈现而非崩溃。
-6. As a 任何用户, I want 既有 CLI 行为零变化, so that M0–M2 的全部证据继续有效。
+1. As a 数据分析人员, I want 客单价类比率指标一次模板发布, so that 不必拆两条指标让模型心算除法。
+2. As a 数据分析人员, I want 月度对比/品类贡献开箱即用且零模型调用, so that 高频分析快且可复现。
+3. As a 隐私负责人, I want 工作区级 min_subjects 下限与目标模型白名单, so that 个别 plan 手滑不能突破组织底线。
+4. As a 隐私负责人, I want 违规 plan 在 prepare 即被阻断并注明违反的 policy, so that 策略可解释。
+5. As a 开发者, I want 三项扩展各有独立契约与回归测试, so that M4 退出条件可逐项核销。
+6. As a 任何用户, I want 扩展不新增任何 IO/出站路径, so that M3 的边界结论继续成立。
 
 ## Implementation Decisions
 
-- **形态**：adapter 为 host 内模块（`host/src/adapter/xanthil-core.ts` 导出 `createXanthilCore(opts)`），复用 catalog/schema/orchestrator/publication/isolation 全部现有实现；**零新依赖、零新进程形态**（worker/内核沙箱机制原样）。CLI 改为调用 adapter（同核收敛）。
-- **API 面**（全部同步返回结构化结果或抛 UserError 子类）：`initWorkspaceAt(dir)`、`registerDataset`、`profileDataset`、`approveSchemaCard`、`ask`、`confirmTask`、`runTask`、`runSessionTasks`、`cancelTask`、`planPublication`/`preparePublication`/`approvePublication`/`sendPublication`/`revokePublication`、`listPublications`/`getPublication`、`listArtifacts`/`exportArtifact`、`auditTrail`。caller 注入：`{model: {fixturePath} | {baseUrl, model, apiKey}}`——apiKey 仅存活于适配层进程 env，不落盘。
-- **参考接线**：`desktop-adapter/xanthil-analysis.adapter.reference.ts`（对齐 xanthil-desktop-ipc 请求类型中与分析相关的 startAnalysis/cancelAnalysis/readProjection 语义映射）+ `desktop-adapter/INTEGRATION.md`（采纳步骤/凭据桥接/工件交付语义/不变量清单）。**不写 ~/JuanerAI 任何文件**。
-- **测试接缝**：新增「adapter 接缝」= `createXanthilCore` 公共 API；canary 对抗（ask→run→publication 全链，经 adapter 入口）断言与 CLI 级一致；CLI 全部既有测试不动即回归护栏（CLI 与 adapter 同核的证明）。
-- **Out of scope**：JuanerAI 仓库任何写入、Electron UI 改造、Desktop 内嵌会话/报告 UI、PX UI 契约实现（由其 Change 流程承担）、新增数据格式/模板。
+- **E1**：publish.py `execute_plan` 扩展；ratio 按组计算（组内 sum(num)/sum(den)，精度取整复用 plan.precision）；metric 形态 `{name, agg: ratio, numerator, denominator}`（宿主校验两字段均在卡内）。信封 metrics 块结构不变（value 仍为数字）。
+- **E2**：`host/src/skills.ts`——注册表 `{name, params schema, generator}`；生成器纯函数（参数+批准卡 → AnalysisTaskSpec）；spec 经既有 createTask 落库（goal 前缀 `[skill:<name>]`）；CLI `skills` 列表 + `skill run`；适配层 `core.skills.list/run`。确认门不变。
+- **E3**：`host/src/policy.ts`——loadPolicy(ws)（无文件→null）；强制点接入 `parsePublicationPlan`（min_subjects < floor / metrics 超量 / banned dimension / target_model 非白名单 → UserError，prepare 捕获后 blocked reason `policy:…`）与 `approveSchemaCard`（require_checks 且卡无 checks → 拒）。policy_version 记入 publications 行（迁移：CREATE TABLE 已含列定义则跳过；运行时 try/catch ALTER ADD COLUMN）。
+- **边界不变量**：三项扩展零新增文件读取/网络/日志路径；E2 生成代码走既有沙箱。
+- **Out of scope**：SQLite/JSON 输入（E4，弱据）；Model Pack/本地模型治理（E5——适配层 baseUrl 已可接本地 OpenAI 兼容端点，README 补一句）；skill 市场/自定义 DSL；RBAC 多用户身份。
 
 ## Testing Decisions
 
-- adapter 级 e2e：fixture 全链（register→profile→approve→ask→confirm→run→publication prepare/approve/send）经 `createXanthilCore`，断言与 CLI 路径产物一致（同数据版本、同信封摘要）。
-- canary 对抗复跑于 adapter 入口（P01/P02 语义）；auditTrail 返回的每条调用可还原完整出站载荷摘要。
-- CLI 既有 43+31 测试零修改通过（同核收敛证明）。
+- E1：worker 单测——§12 数据 ratio（客单价 110.5/2=55.25 手算字面值）；分母零 blocked；mean/median/std 字面值。
+- E2：skill spec 确定性（同参数两次逐字节一致）；端到端 skill run→confirm→run→artifacts 正确且 **audit 模型调用数=0**。
+- E3：e2e——floor=5 后 min_subjects=2 的 plan prepare 即 blocked（reason 含 `policy:`）；白名单外 target_model 拒；banned dimension 拒；require_checks 触发卡拒绝；无 policy 时既有全部测试不变（回归护栏）。
+- 全量 `pnpm verify` 保持绿（既有断言语义零削弱；一处既有 worker 测试的 bad_agg 用例从 "median" 改为 "percentile"——median 现为合法 agg，属必要更新）。
 
 ## Further Notes
 
-**验收映射**：M3 退出条件「工具核心复用」（adapter 即复用面 + CLI 同核）与「不引入旁路数据出站」（接缝级 canary + 信封断言 + adapter 零新增 IO 路径审查）；§1.3「复用现有会话/模型配置/工作区」（凭据由 Desktop 注入、workspace 路径由调用方指定）；§16 Desktop 行「优先复用现有会话与模型配置」。
-**红队缓解**：KA-M3-1 由本 PRD 范围裁定；KA-M3-2/3 由 API 面设计+对抗测试；KA-M3-4 库形态；KA-M3-5 Out of scope 硬边界。
-
-
----
-
-## GRILL Resolved Decisions（M3 自拷问决议，2026-09-30）
-
-> diff 门（跨仓库策略）已呈现未应答，按推荐项执行：适配层先行、零写入 ~/JuanerAI。
-
-- **J1 API 形态**：沿用核心函数既有签名（ask/run 为 async、目录操作同步）；全部返回结构化对象或抛 UserError。
-- **J2 caller 注入**：新增参数式 `createCaller(params)`（fixture 或 openai-compatible 三元组）；现有 env 版改为包一层。apiKey 仅存于内存中的 caller 实例，不落盘不入审计。
-- **J5 同核收敛方式**：adapter 与 CLI 共享同一批核心模块（orchestrator/publication/catalog/…）实现同核，而非 CLI 重写为 adapter 消费者——避免末期无谓重构回归；同核性由「相同 fixture 下产物一致」测试证明。
-- **J6 参考接线定位**：`desktop-adapter/*.reference.ts` 为参考代码（不参与 host 构建/不编译），对齐 xanthil-desktop-ipc 的 startAnalysis/cancelAnalysis/readProjection 语义映射，头部注明 REFERENCE。
-- **J7 审计 API**：listModelCalls / listPublications / listArtifacts 分立暴露，不做聚合投影（投影属 Desktop 侧职责）。
-- **J8 发布计划对象化**：adapter 接受 plan 对象（内部 canonical YAML 序列化后走既有校验），文件路径版保留给 CLI。
+**验收映射**：M4 退出条件逐项核销——E1（模板 schema+基准）、E2（skill 参数契约+零调用回归）、E3（policy schema+强制点回归）；§13.3「参数化分析 Skill」「统计方法」行落地；§6.7「政策」与 §10.3 `policy_version` 落地。
+**红队缓解**：KA-M4-1 三项小切口；KA-M4-2 由 E2 零出站断言 + 既有对抗套件全绿证明。

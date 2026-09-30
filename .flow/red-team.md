@@ -1,46 +1,42 @@
-# Red-Team: M3 Desktop 产品化（跨仓库集成）
+# Red-Team: M4 能力扩展（扩展集选择 + 每项独立契约）
 
-评审日期：2026-09-30｜对象：proposal §1.3/§16/§17.1-M3 + 实勘 `~/JuanerAI`（apps/desktop、packages/contracts/xanthil-desktop-ipc.ts、AGENTS.md 宪法）。
+评审日期：2026-09-30｜对象：proposal §13.3/§17.1-M4 + 已交付基线（3b6a99b：M0–M3 全量）。
 
-## 实勘结论（先于假设）
+## 核心风险：M4 的承重假设是「存在真实任务需求来选择扩展」
 
-- **Desktop 存在且活跃**：Electron 应用（main/preload/renderer + case-assistant 工作台），IPC 契约 18 个请求类型（openSession/startAnalysis/decideAssistanceDisclosure/…），main 分支今天仍有提交（#48/#49）。
-- **治理约束**：JuanerAI 宪法（AGENTS.md）权威链要求用户批准 > 宪法/Blueprint > OpenSpec > 设计 > 测试；开发走 Change/PR 流程；且宪法明言「pending Xanthil Desktop 与 Model Pack 开发计划已于 2026-09-18 撤回作废」。UI 须复用 PX-2026-004/006 契约模式。
-- **我们这边**：工具核心（CLI + 模式 S/A 边界）已交付且对抗验证（M0–M2）；但尚无**程序化入口**（只有 CLI 进程界面），Desktop 无法以库形式复用。
+方案明言 §13.3「后续按**真实任务需求**引入」。目前没有用户表达的具体任务需求 → 扩展选择只能从**已交付产品自身暴露的缺口**反推（有据）或凭空假设（无据）。以下按「缺口证据强度」排序候选。
 
-## Top Kill-Assumptions
+## 候选扩展与证据
 
-### KA-M3-1. 跨仓库写入策略（最大风险）
-- **Claim**: M3 = 把工具核心接入 Desktop。
-- **Fails if**: 未经 JuanerAI 自身流程直接改写其治理仓库（甚至提交 main）——违反其宪法与用户全局规则（写入限授权范围）；PR 流程也无法在本会话内由我单方完成。
-- **处置**: 本 flow 不直接写 JuanerAI。产出=①本仓库的**适配层包**（稳定 TS facade，Desktop 可作依赖消费）+ ②Desktop 侧**参考接线代码**（以独立文件/补丁形态随本仓库交付，附集成 runbook，由用户走其 Change/PR 流程采纳）。此为范围重解释，交 PRD diff 门裁决。
+### E1. 可信发布模板扩展：`ratio` 派生指标 + mean/median/std（有据，推荐）
+- **缺口证据（强）**：§12 示例的客单价=净额/订单数在 M2 无法用单模板表达（KA-M2-1 测试自注释 "aov_base=sum→avg?" 未真正实现 ratio）；M2 交付的模板集只有 sum/count/count_distinct/avg。均值波动类解读（mean/std）是 §12「判断下降集中」类问题的自然需求。
+- **Fails if**：ratio 分母为零/极小值未防护（§12.2 明确要求「除法分母是否为零」校验）。
+- **契约/回归**：模板 schema 扩展（ratio{numerator,denominator} + mean/median/std agg）+ 手算字面值基准 + 零分母 blocked。
+- **成本**：低（worker/publish.py + 校验 + 测试）。
 
-### KA-M3-2. 复用而不重建
-- **Claim**: §1.3「复用现有会话、Agent、模型配置和工作区，不再建设第二套」。
-- **Fails if**: 适配层自行造会话/密钥/UI。落地：适配层只暴露数据集/Schema/任务/发布/审计的编程 API；模型凭据仍由调用方（Desktop 的 provider 设置）注入 env；不新建任何模型通道（一切出站仍走本仓库唯一网关）。
+### E2. 参数化分析 Skill（本地确定性技能）（有据，推荐）
+- **缺口证据（中强）**：§13.3 明列「参数化分析 Skill」；M2 的修复轮上限（3 轮）说明常见分析反复消耗模型调用——月度对比/品类贡献这类高频模式可本地确定性生成 AnalysisTaskSpec，零模型调用、可复现（F08 语义直接受益）。
+- **Fails if**：Skill 生成的代码绕过确认门（必须走同一 ask→confirm→run 状态机与信封边界），或变成第二套不受约束的代码生成器。
+- **契约/回归**：skill 名+参数 → 确定性 spec；产物与等价 fixture 模型输出一致；出站=0 模型调用。
+- **成本**：中（2–3 个内置 skill + 模板引擎复用 E1）。
 
-### KA-M3-3. 不引入旁路数据出站（M3 退出条件）
-- **Claim**: 接入 Desktop 后边界不变。
-- **Steelsman**: 适配层是进程内薄封装（调用与 CLI 相同的核心模块），不新增文件读取/网络/日志路径；对抗测试在**适配层接缝**复跑（信封精确断言 + canary）。
-- **Fails if**: 为了「报告交付」把工件内容直接递给 Desktop 的模型会话。落地：报告交付=本地工件路径/预览引用 + 用户显式导出；给模型的只有经网关的模式 S/A 信封。
+### E3. 工作区策略配置（企业权限最小档）（有据，推荐）
+- **缺口证据（强）**：方案 §10.3 的执行请求里有 `policy_version` 字段、§6.7 发布校验依赖「政策」，但 M0–M3 从未落地策略文件——策略目前散落在 plan 参数里（min_subjects/target_model 由用户每次手填）。企业多用户场景（§13.2 审计行）需要工作区级强制下限。
+- **Fails if**：策略文件本身可被模型/worker 路径改写（必须 Host-only、版本化、prepare/approve/send 三处强制）。
+- **契约/回归**：policy.yaml schema（allowed_target_models/min_subjects_floor/max_metrics/banned_dimensions 等）+ 违规 plan 在 prepare 即 blocked 的回归。
+- **成本**：低-中。
 
-### KA-M3-4. 进程模型
-- Desktop（Electron main）调用方式：适配层以**库**形态同进程调用，还是 spawn CLI 子进程？库形态=最优（类型安全、状态共享）；但 worker 沙箱子进程本就是核心一部分，无碍。选库形态，CLI 保留为薄入口。
+### E4. 更多引擎（SQLite/JSON 输入）（弱据，不推荐本轮）
+- 无已表达需求；readers 扩展机械但测试面大；Parquet+DuckDB 已覆盖主流分析载荷。后置。
 
-### KA-M3-5. 范围与预算
-- Electron UI 全面改造不在本 flow（那是 JuanerAI 侧 Change）。本 flow 交付=适配层 + 参考接线 + 契约测试 + runbook。
+### E5. 本地模型/Model Pack 接入（不推荐本轮）
+- §16/§1.4 明言训练、注册、模型治理不属首期；且 M3 适配层已支持任意 OpenAI 兼容 baseUrl（本地端点如 ollama 天然可用）——「本地模型接入」在现有 API 下已是配置问题而非工程缺口。记为文档说明即可。
 
-## What's Well-Reasoned
+## 交叉风险
 
-- proposal §1.3 早已预判「不是先做大型独立应用再集成」——适配层先行正合本意。
-- 核心边界（网关/沙箱/审计）已被 M0–M2 对抗验证，M3 只是加一个进程内消费者，不改边界本身。
-- Desktop IPC 契约中 decideAssistanceDisclosure 的「逐次披露」语义与本工具模式 A 的授权语义天然对齐。
-
-## What I Couldn't Assess
-
-- JuanerAI 侧 UI 契约（PX-2026-004/006）细节与 Change 流程的实际周期——参考接线只能力求「可采纳」而非「已采纳」。
-- Desktop 内嵌模型会话的 provider 机制细节（参考接线按 env 注入设计，留适配点）。
+- **KA-M4-1（预算）**：本会话已连续完成 M0–M3 三个 flow；M4 应**只做 E1+E2+E3 三项小切口**，每项独立契约+回归，避免摊大饼。
+- **KA-M4-2（边界回归）**：任何扩展不得新增 IO/出站路径（M3 退出条件延续）；E2 的 skill 代码生成必须复用既有信封与确认门。
 
 ## Verdict
 
-**go（附范围重解释 KA-M3-1，交 PRD diff 门裁决）**——Desktop 前提成立；跨仓库治理约束决定「适配层先行、不写对方仓库」的路径。无 kill 准则被满足。
+**go（附扩展集建议 E1+E2+E3；E4/E5 记录不做）**——三项均有基线暴露的真实缺口证据，各自可独立验收；选择权交 PRD diff 门（用户活跃，可裁决）。

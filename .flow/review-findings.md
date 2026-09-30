@@ -1,25 +1,16 @@
-# M3 Review Findings（独立子代理双轴审查 + 修复周期，2026-09-30）
+# M4 Review Findings（独立子代理审查 + 修复周期，2026-09-30）
 
-## 首轮（verdict FAIL：1×P0 + 1×P1 + 5×P2 + 3×P3）
+## 首轮（verdict FAIL：2×P0 + 2×P1 + 4×P2 + 4×P3）
 
 | # | 级别 | 问题 | 处置 |
 |---|---|---|---|
-| P0 | 凭据泄露 | apiKey 经 process.env 全量透传 Worker 环境（§8.2 违反，注释失实） | **修复**：pi-ai literal-key auth（resolve 返回固定凭证，caller.ts 零 process.env 写入）+ isolation.ts 强制剥离 XANTHIL_LLM_*；复检方独立实证 worker env 命中=0 |
-| P1 | 功能断裂 | 模式 A 发送绕开注入 caller（适配层 publication.send 必败） | **修复**：sendPublication 接受注入 caller；target-model 绑定用 caller 身份（modelIdentityOf）；新增适配层 prepare→approve→send e2e |
-| P2a | PRD 落实 | J8 plan 对象入口被静默丢弃 | **修复**：publications.prepare 接受对象（YAML round-trip 同一校验）；测试覆盖 |
-| P2b | 声明失实 | "CLI-identical" 无同 fixture 对拍证据 | **修复**：退出报告措辞如实（同核性=共享模块构造） |
-| P2c | 参考接线失真 | goal/dataset 来源、confirm 门、run_id 形态与真实契约不符 | **修复**：reference 头部诚实化 + INTEGRATION.md 同步 |
-| P2d | 行为漂移 | confirm 裸 Error；revoke 循环复制 | **修复/接受**：UserError；revoke 空集返回 [] 属库幂等语义（复检方裁定不阻断），下沉共享函数记为后续 |
-| P3a | 重复 | index.ts 与 caller.ts 重复 fixture 解析 | **修复**：index.ts 委托 createCaller |
-| P3b | 缺 API | PRD 列 exportArtifact 未实现 | **修复**：artifacts.export |
-| P3c | 流程产物 | tasks.md 无 M3 节 | **修复**：补 M3 节 |
+| P0-1 | E1 不可达 | ratio 宿主门缺失（AGGS 无 ratio 且强制 field；worker 测试绕过宿主门；退出报告失实） | **修复**：AGGS+ratio 分支（numerator/denominator 卡内校验，免 field）；新增经 `publish prepare` 的 ratio e2e（37.5 手算值） |
+| P0-2 | 证据失实 | verify 记录 31 worker vs 实测 33；PRD「零修改」表述 | **修复**：如实记录 51+33；PRD 改「断言语义零削弱」并注明 bad_agg 用例必要更新 |
+| P1-1 | fail-open | 损坏 policy.yaml 使 require_checks 静默失效（schema.ts 内联复制读取逻辑） | **修复**：loadPolicyStrict 统一（存在但坏 → 拒绝且报错可读），两个强制点均 fail-closed |
+| P1-2 | 契约缺角 | policy_version 未记入 publications 行（PRD/§6.9/§10.3） | **修复**：列迁移 + 两条插入路径写入 |
+| P2 | 确定性断言空 / lazy-env 审计名 / policy set 缺失 | | **修复**：断言措辞如实、name getter 透传、`policy set <json>` 落地 |
+| P3 | 错误信息过期 agg 列表 / 测试死代码 / DB-返回不一致 / skills 接线重复 / 未转义内插 | 错误信息已随 P0-1 更新；其余记录不改（非阻断） |
+| UNVERIFIED | prepare→send 之间收紧策略不阻断已批发送（规格只定两强制点——确认为有意设计：授权四元组绑定即 §5.3 语义）；month 非字典序对齐 | 记录：send 侧强制点列为 M5 候选；groupby 行序依赖已由手算基准覆盖当前数据 |
 
-## 复检（verdict **PASS**，2026-09-30）
-
-四项复查标准全部由复检方独立验证（env 实证、caller.ts 全文无 env 写入、模式 A 适配层 e2e 通过、文档措辞）。残留 P3 全部闭合于本轮：
-- README 适配层章节（此前 python 替换再次静默失败——与本 flow 教训一致，已用 Edit 工具补上并改限制清单措辞）
-- J8 临时 plan 文件移入 publications/ 目录
-- 测试名/退出报告旧措辞（CLI-identical → CLI-parity/共享模块构造）
-- 记录不改：适配层 tasks.run 无 CLI 式 running 兜底 settle（边缘健壮性，后续）；真实 provider（非 fixture）注入 caller 全链 e2e 维持 UNVERIFIED（需活端点）；撤销循环下沉共享函数（后续重构）
-
-**结论：M3 修复周期收敛，PASS。**
+**复检轮 2**：FAIL（收窄 2 项）——ALTER 迁移缺失（旧工作区 prepare 硬崩）+ `policy set` 未实现但三处声明已修（批量替换第五次静默失败）。
+**复检轮 3（终审）**：**PASS（APPROVE_WITH_COMMENTS）**——ALTER 迁移与 policy set 实证修复（旧 11 列表重建后 blocked/prepared 双路径插入携带 policy_version；set→show→floor 阻断链）；52+33 与重跑一致；残留 P3（policy set 值形态校验、测试死代码、goal 级确定性断言等）披露不改或已顺手闭合。

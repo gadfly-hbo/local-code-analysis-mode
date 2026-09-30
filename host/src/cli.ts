@@ -2,11 +2,13 @@
 import { copyFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Command } from "commander";
-import { listDatasets, registerDataset } from "./catalog.ts";
+import YAML from "yaml";
+import { getDatasetByAlias, listDatasets, registerDataset } from "./catalog.ts";
 import { runSandboxSelfCheck } from "./isolation.ts";
 import { listModelCalls } from "./llm/egress.ts";
 import { createCallerFromEnv } from "./llm/index.ts";
 import { askTask, runSession, runTask } from "./orchestrator.ts";
+import { loadPolicy, policyVersion } from "./policy.ts";
 import { profileDataset } from "./profiler.ts";
 import {
   approvePublication,
@@ -19,8 +21,10 @@ import {
   sendPublication,
 } from "./publication.ts";
 import { approveSchemaCard, getApprovedCard } from "./schema.ts";
+import { listSkills, runSkill } from "./skills.ts";
 import {
   cancelTask,
+  createTask,
   getArtifact,
   getTask,
   listArtifacts,
@@ -205,7 +209,7 @@ program
     try {
       const wsPath = resolveWorkspacePath(program.opts().workspace);
       const ws = openWorkspace(wsPath);
-      const task = await askTask(ws, createCallerFromEnv(), {
+      const task = await askTask(ws, undefined, {
         goal,
         aliases: opts.dataset,
       });
@@ -252,7 +256,7 @@ program
       const wsPath = resolveWorkspacePath(program.opts().workspace);
       const ws = openWorkspace(wsPath);
       wsRef = ws;
-      const task = await runTask(ws, createCallerFromEnv(), taskId);
+      const task = await runTask(ws, undefined, taskId);
       console.log(
         JSON.stringify({
           id: task.id,
@@ -369,7 +373,7 @@ program
       const wsPath = resolveWorkspacePath(program.opts().workspace);
       const ws = openWorkspace(wsPath);
       wsRef = ws;
-      const { results } = await runSession(ws, createCallerFromEnv(), taskIds);
+      const { results } = await runSession(ws, undefined, taskIds);
       console.log(JSON.stringify(results));
     } catch (error) {
       fail(error);
@@ -515,6 +519,123 @@ program
       const wsPath = resolveWorkspacePath(program.opts().workspace);
       const ws = openWorkspace(wsPath);
       console.log(JSON.stringify(listPublications(ws)));
+    } catch (error) {
+      fail(error);
+    }
+  });
+
+program
+  .command("skills")
+  .description("list built-in parameterized analysis skills (zero model calls)")
+  .action(() => {
+    console.log(JSON.stringify(listSkills()));
+  });
+
+program
+  .command("skill-run <skill>")
+  .description(
+    "generate a deterministic analysis task from a skill (awaiting_confirmation)",
+  )
+  .requiredOption("--dataset <alias>", "dataset alias with an approved card")
+  .option(
+    "--param <k=v>",
+    "skill parameter (repeatable)",
+    (value: string, previous: string[]) => [...previous, value],
+    [],
+  )
+  .action((skill: string, opts: { dataset: string; param: string[] }) => {
+    try {
+      const wsPath = resolveWorkspacePath(program.opts().workspace);
+      const ws = openWorkspace(wsPath);
+      const { card, schema_version } = getApprovedCard(ws, opts.dataset);
+      const params = Object.fromEntries(
+        opts.param.map((pair) => {
+          const index = pair.indexOf("=");
+          return index > 0
+            ? [pair.slice(0, index), pair.slice(index + 1)]
+            : [pair, ""];
+        }),
+      );
+      const spec = runSkill({ name: skill, alias: opts.dataset, card, params });
+      const listing = getDatasetByAlias(ws, opts.dataset);
+      const task = createTask(ws, {
+        goal: spec.goal,
+        datasets: [opts.dataset],
+        versions: {
+          [opts.dataset]: { version: listing.current_version, schema_version },
+        },
+        spec,
+      });
+      console.log(
+        JSON.stringify({ id: task.id, status: task.status, goal: task.goal }),
+      );
+    } catch (error) {
+      fail(error);
+    }
+  });
+
+const policyCmd = program
+  .command("policy")
+  .description("workspace policy operations");
+
+policyCmd
+  .command("show")
+  .description("show the workspace policy (absent = unrestricted)")
+  .action(() => {
+    try {
+      const wsPath = resolveWorkspacePath(program.opts().workspace);
+      const ws = openWorkspace(wsPath);
+      console.log(
+        JSON.stringify({ policy: loadPolicy(ws), version: policyVersion(ws) }),
+      );
+    } catch (error) {
+      fail(error);
+    }
+  });
+
+policyCmd
+  .command("set <json>")
+  .description(
+    "write the workspace policy from a JSON object (Host-only writer)",
+  )
+  .action((json: string) => {
+    try {
+      const wsPath = resolveWorkspacePath(program.opts().workspace);
+      const ws = openWorkspace(wsPath);
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(json);
+      } catch {
+        throw new UserError("policy set expects a JSON object");
+      }
+      if (typeof parsed !== "object" || parsed === null) {
+        throw new UserError("policy set expects a JSON object");
+      }
+      // P3: validate the shape BEFORE writing — a wrong-typed knob would
+      // otherwise be silently skipped by enforcement (fail-open at authoring).
+      const record = parsed as Record<string, unknown>;
+      const numeric = ["min_subjects_floor", "max_metrics_per_plan"];
+      const bools = ["require_checks_on_approve"];
+      const lists = ["allowed_target_models", "banned_dimensions"];
+      for (const [key, value] of Object.entries(record)) {
+        if (
+          numeric.includes(key) &&
+          (typeof value !== "number" || !Number.isFinite(value))
+        ) {
+          throw new UserError(`policy set: "${key}" must be a number`);
+        }
+        if (bools.includes(key) && typeof value !== "boolean") {
+          throw new UserError(`policy set: "${key}" must be a boolean`);
+        }
+        if (
+          lists.includes(key) &&
+          (!Array.isArray(value) || value.some((v) => typeof v !== "string"))
+        ) {
+          throw new UserError(`policy set: "${key}" must be a list of strings`);
+        }
+      }
+      writeFileSync(join(wsPath, "policy.yaml"), YAML.stringify(parsed));
+      console.log(JSON.stringify({ version: policyVersion(ws) }));
     } catch (error) {
       fail(error);
     }

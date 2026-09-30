@@ -21,7 +21,8 @@ import pandas as pd
 from worker.readers import read_any
 
 MAX_DIMENSION_CARDINALITY = 50
-AGGS = ("sum", "count", "count_distinct", "avg")
+AGGS = ("sum", "count", "count_distinct", "avg", "mean", "median", "std")
+ZERO_DENOMINATOR_EPSILON = 1e-9
 
 
 def _dimension_frame(df: pd.DataFrame, dimension: str) -> pd.Series:
@@ -69,7 +70,16 @@ def execute_plan(datasets: dict[str, dict], plan: dict) -> dict:
         raise ValueError("mode A publications support exactly one dataset in M2")
     alias, spec = next(iter(datasets.items()))
     df = read_any(spec["path"])
-    for column in [plan["subject_field"]] + [m["field"] for m in plan["metrics"] if m["field"]]:
+    metric_fields = [
+        m["field"] for m in plan["metrics"] if m.get("agg") != "ratio" and m.get("field")
+    ] + [
+        f
+        for m in plan["metrics"]
+        if m.get("agg") == "ratio"
+        for f in (m.get("numerator"), m.get("denominator"))
+        if f
+    ]
+    for column in [plan["subject_field"]] + metric_fields:
         if column not in df.columns and column is not None:
             raise KeyError(column)
 
@@ -102,16 +112,31 @@ def execute_plan(datasets: dict[str, dict], plan: dict) -> dict:
             agg = metric["agg"]
             if agg == "count":
                 value = float(len(group))
-            elif metric["field"] not in group.columns:
-                raise KeyError(metric["field"])
             elif agg == "count_distinct":
                 value = float(group[metric["field"]].nunique())
+            elif agg == "ratio":
+                num = pd.to_numeric(group[metric["numerator"]], errors="coerce")
+                den = pd.to_numeric(group[metric["denominator"]], errors="coerce")
+                den_sum = float(den.sum())
+                if abs(den_sum) < ZERO_DENOMINATOR_EPSILON:
+                    raise ValueError(
+                        f"ratio metric '{metric['name']}': denominator field"
+                        f" '{metric['denominator']}' sums to ~zero for at least one group"
+                        " (§12.2 division guard)"
+                    )
+                value = float(num.sum()) / den_sum
+            elif metric["field"] not in group.columns:
+                raise KeyError(metric["field"])
             else:
                 numeric = pd.to_numeric(group[metric["field"]], errors="coerce")
                 if agg == "sum":
                     value = float(numeric.sum())
-                elif agg == "avg":
+                elif agg in ("avg", "mean"):
                     value = float(numeric.mean())
+                elif agg == "median":
+                    value = float(numeric.median())
+                elif agg == "std":
+                    value = float(numeric.std(ddof=1)) if len(numeric.dropna()) > 1 else 0.0
                 else:
                     raise ValueError(f"unsupported agg '{agg}'")
             keys = key if isinstance(key, tuple) else (key,)

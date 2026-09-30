@@ -31,7 +31,7 @@ interface ExecutionReport {
 /** Ask the model for an AnalysisTaskSpec over the approved schemas; task lands awaiting_confirmation. */
 export async function askTask(
   ws: Workspace,
-  caller: ModelCaller,
+  caller: ModelCaller | undefined,
   input: { goal: string; aliases: string[] },
 ): Promise<TaskRow> {
   if (input.aliases.length === 0) {
@@ -46,7 +46,7 @@ export async function askTask(
     return { alias, uri: `dataset://${alias}`, schema_card: card };
   });
 
-  const gateway = createEgressGateway(ws, caller);
+  const gateway = createEgressGateway(ws, caller ?? lazyEnvCaller());
   const { text } = await gateway.completeModeS({
     goal: input.goal,
     datasets: envelopeDatasets,
@@ -144,7 +144,7 @@ function oneShotExecutor(ws: Workspace): TaskExecutor {
 /** Execute confirmed tasks sequentially on ONE persistent kernel (F05 reuse). */
 export async function runSession(
   ws: Workspace,
-  caller: ModelCaller,
+  caller: ModelCaller | undefined,
   taskIds: string[],
 ): Promise<{
   results: { id: string; status: string; error_summary: string | null }[];
@@ -156,6 +156,7 @@ export async function runSession(
     }
   }
   const { KernelManager } = await import("./kernel.ts");
+  const effectiveCaller = caller ?? lazyEnvCaller();
   const kernel = new KernelManager(ws, [...aliases], taskIds);
   kernel.start();
   const kernelExecutor: TaskExecutor = async (input) => {
@@ -178,7 +179,12 @@ export async function runSession(
   }[] = [];
   try {
     for (const taskId of taskIds) {
-      const task = await runTaskWith(ws, caller, taskId, kernelExecutor);
+      const task = await runTaskWith(
+        ws,
+        effectiveCaller,
+        taskId,
+        kernelExecutor,
+      );
       results.push({
         id: task.id,
         status: task.status,
@@ -194,16 +200,32 @@ export async function runSession(
 /** Execute a confirmed task: sandboxed run, artifact registration, bounded structural fix rounds. */
 export async function runTask(
   ws: Workspace,
-  caller: ModelCaller,
+  caller: ModelCaller | undefined,
   taskId: string,
   budgetOverrides?: Partial<EgressBudget>,
 ): Promise<TaskRow> {
   return runTaskWith(ws, caller, taskId, undefined, budgetOverrides);
 }
 
+/** Lazy caller: providers are only required when a fix-round actually fires. */
+export function lazyEnvCaller(): ModelCaller {
+  let cached: ModelCaller | null = null;
+  const lazy: ModelCaller = {
+    get name(): string {
+      // P2: audits must record the real model target, not "lazy-env".
+      return cached?.name ?? "env";
+    },
+    async call(request) {
+      cached ??= (await import("./llm/index.ts")).createCallerFromEnv();
+      return cached.call(request);
+    },
+  };
+  return lazy;
+}
+
 async function runTaskWith(
   ws: Workspace,
-  caller: ModelCaller,
+  caller: ModelCaller | undefined,
   taskId: string,
   executor?: TaskExecutor,
   budgetOverrides?: Partial<EgressBudget>,
@@ -235,7 +257,11 @@ async function runTaskWith(
   }
 
   const budget = { ...DEFAULT_EGRESS_BUDGET, ...budgetOverrides };
-  const gateway = createEgressGateway(ws, caller, budgetOverrides);
+  const gateway = createEgressGateway(
+    ws,
+    caller ?? lazyEnvCaller(),
+    budgetOverrides,
+  );
   let diagnostics: StructuralDiagnostic[] | undefined;
 
   while (true) {

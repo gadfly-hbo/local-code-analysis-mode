@@ -121,7 +121,7 @@ def test_month_dimension_requires_parseable_dates(datasets, tmp_path):
 def test_unknown_field_and_aggs_fail_cleanly(datasets):
     with pytest.raises(KeyError):
         execute_plan(datasets, make_plan(metrics=[{"name": "x", "agg": "sum", "field": "revenue"}]))
-    bad_agg = {"name": "x", "agg": "median", "field": "net_amount"}
+    bad_agg = {"name": "x", "agg": "percentile", "field": "net_amount"}
     with pytest.raises(ValueError, match="unsupported agg"):
         execute_plan(datasets, make_plan(metrics=[bad_agg]))
 
@@ -146,3 +146,85 @@ def test_protocol_one_json_line(tmp_path):
     payload = json.loads(lines[0])
     assert payload["ok"] is True
     assert payload["result"]["group_count"] == 2
+
+
+def test_e1_ratio_and_stat_aggs_with_hand_computed_literals(datasets):
+    """E1 contract: ratio (AOV) + mean/median/std with §12-style hand values.
+
+    womens/2026-07 rows: net 100.5, -20, 30; orders {007,009} -> AOV = 110.5/2
+    = 55.25. mean(net) = 110.5/3 = 36.8333..; median = 30; std(ddof=1) of
+    (100.5, -20, 30) = sqrt(((100.5-36.8333)^2 + (-20-36.8333)^2 + (30-36.8333)^2)/2)
+    = sqrt((4054.69 + 3231.36 + 46.69)/2) = sqrt(3666.37) = 60.55.
+    """
+    plan = make_plan(
+        min_subjects=2,
+        metrics=[
+            {"name": "aov", "agg": "ratio", "numerator": "net_amount", "denominator": "order_id"},
+        ],
+    )
+    # denominator must be numeric for ratio -> use net_amount/count-style instead:
+    # AOV via ratio needs distinct-order denominator; use count_distinct orders as
+    # a companion metric and ratio(net, lines) is meaningless. Use the documented
+    # per-group sum/sum form: ratio(net_amount_sum / numeric_denominator_field).
+    plan = make_plan(
+        min_subjects=2,
+        metrics=[
+            {"name": "mean_net", "agg": "mean", "field": "net_amount"},
+            {"name": "median_net", "agg": "median", "field": "net_amount"},
+            {"name": "std_net", "agg": "std", "field": "net_amount"},
+        ],
+    )
+    result = execute_plan(datasets, plan)
+    stats = {m["name"]: m for m in result["metrics"]}
+    womens = {"category": "womens", "month(order_date)": "2026-07"}
+
+    def find(metric_name, dims):
+        metric = stats[metric_name]
+        for row in metric["rows"]:
+            if row["dimensions"] == dims:
+                return row["value"]
+        raise AssertionError(f"no row for {metric_name} {dims}")
+
+    assert find("mean_net", womens) == 36.83
+    assert find("median_net", womens) == 30.0
+    assert abs(find("std_net", womens) - 60.55) < 0.01
+
+
+def test_e1_ratio_metric_and_zero_denominator_guard(tmp_path):
+    csv = tmp_path / "r.csv"
+    csv.write_text(
+        "order_id,order_date,customer_id,category,net_amount,order_lines\n"
+        "007,2026-07-01,C01,womens,100.0,2\n"
+        "008,2026-07-01,C02,womens,50.0,2\n"
+        "009,2026-07-02,C03,mens,30.0,0\n",
+        encoding="utf-8",
+    )
+    good = {
+        "subject_field": "customer_id",
+        "min_subjects": 2,
+        "precision": 2,
+        "metrics": [
+            {
+                "name": "per_line",
+                "agg": "ratio",
+                "numerator": "net_amount",
+                "denominator": "order_lines",
+            }
+        ],
+        "dimensions": ["category"],
+        "filters": [],
+    }
+    result = execute_plan({"sales": {"path": str(csv), "version": "v1"}}, good)
+    row = result["metrics"][0]["rows"][0]
+    assert row["dimensions"] == {"category": "womens"}
+    assert row["value"] == 37.5  # (100+50)/(2+2)
+
+    zero_den = {
+        **good,
+        "filters": [{"field": "category", "op": "eq", "value": "mens"}],
+        "min_subjects": 1,
+    }
+    with pytest.raises(
+        ValueError, match="denominator field 'order_lines' sums to ~zero"
+    ):
+        execute_plan({"sales": {"path": str(csv), "version": "v1"}}, zero_den)

@@ -9,12 +9,24 @@
 import { copyFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import YAML from "yaml";
-import { listDatasets, registerDataset } from "../catalog.ts";
+import {
+  getDatasetByAlias,
+  listDatasets,
+  registerDataset,
+} from "../catalog.ts";
 import { runSandboxSelfCheck } from "../isolation.ts";
 import { createCaller, type ModelCallerParams } from "../llm/caller.ts";
 import { listModelCalls } from "../llm/egress.ts";
 import { askTask, runSession, runTask } from "../orchestrator.ts";
 import { profileDataset } from "../profiler.ts";
+import { listSkills, runSkill } from "../skills.ts";
+
+function skillsAlias(name: string, params: Record<string, string>): string {
+  const alias = params.dataset ?? params.alias;
+  if (!alias) throw new UserError("skills.run requires params.dataset");
+  return alias;
+}
+
 import {
   approvePublication,
   emitPlanDraft,
@@ -28,6 +40,7 @@ import {
 import { approveSchemaCard, getApprovedCard } from "../schema.ts";
 import {
   cancelTask,
+  createTask,
   getArtifact,
   getTask,
   listArtifacts,
@@ -153,6 +166,24 @@ export function createXanthilCore(options: XanthilCoreOptions) {
 
     sandbox: {
       selfCheck: () => runSandboxSelfCheck(),
+    },
+
+    skills: {
+      list: () => listSkills(),
+      run: (name: string, params: Record<string, string>) => {
+        const alias = skillsAlias(name, params);
+        const { card, schema_version } = getApprovedCard(ws(), alias);
+        const spec = runSkill({ name, alias, card, params });
+        const listing = getDatasetByAlias(ws(), alias);
+        return createTask(ws(), {
+          goal: spec.goal,
+          datasets: [alias],
+          versions: {
+            [alias]: { version: listing.current_version, schema_version },
+          },
+          spec,
+        });
+      },
     },
 
     init: () => initWorkspace(root),

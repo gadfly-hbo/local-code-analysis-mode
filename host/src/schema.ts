@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import YAML from "yaml";
+import { loadPolicyStrict } from "./policy.ts";
 import type { SchemaCard } from "./profiler.ts";
 import { UserError, type Workspace } from "./workspace.ts";
 
@@ -174,6 +175,17 @@ export function approveSchemaCard(
     .get(alias) as { dataset_id: string; current_version: string } | undefined;
   if (!dataset) {
     throw new UserError(`unknown dataset alias "${alias}"`);
+  }
+
+  // E3: workspace policy may REQUIRE the checks block on approval.
+  // Reuse loadPolicy so a BROKEN policy file fails CLOSED here exactly like
+  // it does at prepare (P1: hand-written policy typos must not silently
+  // turn the gate advisory).
+  const policy = loadPolicyStrict(ws);
+  if (policy?.require_checks_on_approve && !card.checks) {
+    throw new UserError(
+      "policy: schema cards must carry a checks block in this workspace",
+    );
   }
 
   // F02 machine checks: cross-validate the card's checks block against the
