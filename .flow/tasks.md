@@ -3,16 +3,16 @@
 > 来源：`.flow/prd.md`（含 GRILL 决议 G1–G16）。每片纵切全层、独立可演示/可验证。
 > 无 issue tracker（空项目）→ 本文件即任务事实源。验收编号对齐 proposal §14（F=功能 / P=数据边界）。
 
-- [ ] 0. 仓库骨架与统一验证命令（prefactor）
-- [ ] 1. Workspace + Dataset 注册与内容版本（register/list）
-- [ ] 2. 本地画像与 Schema 卡流水线（profile → 编辑 → approve，Worker 一次性执行引导）
-- [ ] 3. 隔离后端 + 逃逸自检门（IsolationBackend / seatbelt，P04/P05）
-- [ ] 4. 模型出站网关 + FixtureProvider + 审计（模式 S 信封，P01/P09 机制）
-- [ ] 5. ask→confirm→run 闭环（任务状态机 + 受限执行 + 工件库 + 结构性诊断修复轮）
-- [ ] 6. Canary 隐私对抗套件（M0 退出证据：精确信封断言，P01/P02/P03/P09）
-- [ ] 7. M1 持久内核（NDJSON 协议、跨轮复用 F05、版本失效 F06、取消/超时/重启 F07）
-- [ ] 8. 正确性基准与导出（F02/F03/F04/F08 + export + DuckDB 加固验证）
-- [ ] 9. 文档、真实冒烟与模式 S 成功率度量（KA1 证据、README、AGENTS.md）
+- [x] 0. 仓库骨架与统一验证命令（prefactor）
+- [x] 1. Workspace + Dataset 注册与内容版本（register/list）
+- [x] 2. 本地画像与 Schema 卡流水线（profile → 编辑 → approve，Worker 一次性执行引导）
+- [x] 3. 隔离后端 + 逃逸自检门（IsolationBackend / seatbelt，P04/P05）
+- [x] 4. 模型出站网关 + FixtureProvider + 审计（模式 S 信封，P01/P09 机制）
+- [x] 5. ask→confirm→run 闭环（任务状态机 + 受限执行 + 工件库 + 结构性诊断修复轮）
+- [x] 6. Canary 隐私对抗套件（M0 退出证据：精确信封断言，P01/P02/P03/P09）
+- [x] 7. M1 持久内核（NDJSON 协议、跨轮复用 F05、版本失效 F06、取消/超时/重启 F07）
+- [x] 8. 正确性基准与导出（F02/F03/F04/F08 + export + DuckDB 加固验证）
+- [x] 9. 文档、真实冒烟与模式 S 成功率度量（KA1 证据、README、AGENTS.md）
 
 ---
 

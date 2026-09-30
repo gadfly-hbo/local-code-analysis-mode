@@ -1,0 +1,8 @@
+{
+  "name": "local-code-analysis-mode",
+  "private": true,
+  "scripts": {
+    "verify": "pnpm -C host verify && pnpm verify:worker",
+    "verify:worker": "cd worker && uv run ruff check . && uv run pytest -q"
+  }
+}

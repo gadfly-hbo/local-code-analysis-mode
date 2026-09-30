@@ -1,0 +1,24 @@
+{
+  "name": "@xanthil/host",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "xanthil": "./src/cli.ts"
+  },
+  "scripts": {
+    "verify": "biome check . && tsc --noEmit && vitest run"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "0.86.1",
+    "commander": "^15.0.0",
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.14",
+    "@types/node": "^25.0.0",
+    "tsx": "^4.23.0",
+    "typescript": "^5.9.0",
+    "vitest": "^5.0.0"
+  }
+}
