@@ -26,7 +26,9 @@ class _DatasetAccessor:
         if alias not in self._paths:
             raise KeyError(alias)
         self._loaded.add(alias)
-        return pd.read_csv(self._paths[alias], dtype=str)
+        from worker.readers import read_any
+
+        return read_any(self._paths[alias])
 
     def __contains__(self, alias: object) -> bool:
         return alias in self._paths

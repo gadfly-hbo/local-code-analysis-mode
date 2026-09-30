@@ -55,6 +55,12 @@ export function registerDataset(
       )
       .get(datasetId, version);
     if (alreadyRegistered) {
+      // Content-addressed currency: registering a file makes THIS content the
+      // current version, even if that version was seen before (e.g. a file
+      // reverted after an edit) — otherwise approvals/cards bound to it dangle.
+      ws.db
+        .prepare("UPDATE datasets SET current_version = ? WHERE dataset_id = ?")
+        .run(version, datasetId);
       return {
         dataset_id: datasetId,
         alias,

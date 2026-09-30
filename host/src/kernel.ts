@@ -64,16 +64,17 @@ export class KernelManager {
 
     // R4: writes are scoped to the kernel dir plus ONLY the participating
     // tasks' run roots — not the whole workspace runs tree.
-    const profile = buildSeatbeltProfile(
-      allowedReads,
-      this.kernelDir,
-      this.runRoots.map((root) => join(this.ws.root, "runs", root)),
-    );
+    const sharedMpl = join(this.ws.root, "tmp-mpl");
+    mkdirSync(sharedMpl, { recursive: true });
+    const profile = buildSeatbeltProfile(allowedReads, this.kernelDir, [
+      ...this.runRoots.map((root) => join(this.ws.root, "runs", root)),
+      sharedMpl,
+    ]);
     const env: Record<string, string | undefined> = {
       ...process.env,
       PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
       PYTHONDONTWRITEBYTECODE: "1",
-      MPLCONFIGDIR: join(this.kernelDir, "tmp"),
+      MPLCONFIGDIR: join(this.ws.root, "tmp-mpl"),
       TMPDIR: join(this.kernelDir, "tmp"),
       PYTHONPATH: workerSitePackages(),
     };

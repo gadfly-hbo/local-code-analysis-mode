@@ -34,6 +34,32 @@ const MIGRATIONS = [
     approved_at TEXT NOT NULL,
     PRIMARY KEY (dataset_id, schema_version)
   )`,
+  `CREATE TABLE IF NOT EXISTS publications (
+    id TEXT PRIMARY KEY,
+    at TEXT NOT NULL,
+    purpose TEXT NOT NULL,
+    plan_digest TEXT NOT NULL,
+    plan_json TEXT NOT NULL,
+    status TEXT NOT NULL,
+    payload_json TEXT,
+    payload_sha256 TEXT,
+    block_reason TEXT,
+    data_versions TEXT NOT NULL,
+    datasets TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS approvals (
+    id TEXT PRIMARY KEY,
+    publication_id TEXT NOT NULL,
+    approved_at TEXT NOT NULL,
+    payload_sha256 TEXT NOT NULL,
+    plan_digest TEXT NOT NULL,
+    data_versions TEXT NOT NULL,
+    target_model TEXT NOT NULL,
+    max_sends INTEGER NOT NULL,
+    sent_count INTEGER NOT NULL DEFAULT 0,
+    expires_at TEXT NOT NULL,
+    revoked_at TEXT
+  )`,
 ];
 
 export function resolveWorkspacePath(
@@ -46,7 +72,14 @@ export function resolveWorkspacePath(
 export function initWorkspace(wsPath: string): { created: boolean } {
   const dbFile = join(wsPath, "db.sqlite");
   const created = !existsSync(dbFile);
-  for (const rel of ["datasets", "artifacts", "runs", "logs/egress"]) {
+  for (const rel of [
+    "datasets",
+    "artifacts",
+    "runs",
+    "logs/egress",
+    "publications",
+    "tmp-mpl",
+  ]) {
     mkdirSync(join(wsPath, rel), { recursive: true });
   }
   const db = new DatabaseSync(dbFile);

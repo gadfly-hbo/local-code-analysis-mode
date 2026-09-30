@@ -16,6 +16,7 @@ export interface IsolationSpec {
   args: string[];
   allowedReads: string[];
   writableDir: string;
+  extraWritableDirs?: string[];
   input?: string;
   timeoutMs?: number;
 }
@@ -141,13 +142,19 @@ export function runIsolated(spec: IsolationSpec): IsolationResult {
   }
 
   mkdirSync(join(spec.writableDir, "tmp"), { recursive: true });
-  const profile = buildSeatbeltProfile(spec.allowedReads, spec.writableDir);
+  const extraWritable = spec.extraWritableDirs ?? [];
+  const profile = buildSeatbeltProfile(
+    spec.allowedReads,
+    spec.writableDir,
+    extraWritable,
+  );
   writeFileSync(join(spec.writableDir, "sandbox-profile.sb"), profile);
   const env: Record<string, string | undefined> = {
     ...process.env,
     PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
     PYTHONDONTWRITEBYTECODE: "1",
-    MPLCONFIGDIR: join(spec.writableDir, "tmp"),
+    // Shared workspace font cache first (built once), run-local tmp as fallback.
+    MPLCONFIGDIR: extraWritable[0] ?? join(spec.writableDir, "tmp"),
     TMPDIR: join(spec.writableDir, "tmp"),
     // sandbox-exec resolves the venv python symlink to the bare interpreter,
     // losing venv activation; force site-packages onto sys.path explicitly.

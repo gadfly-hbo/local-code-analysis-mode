@@ -8,8 +8,19 @@ import { listModelCalls } from "./llm/egress.ts";
 import { createCallerFromEnv } from "./llm/index.ts";
 import { askTask, runSession, runTask } from "./orchestrator.ts";
 import { profileDataset } from "./profiler.ts";
+import {
+  approvePublication,
+  emitPlanDraft,
+  getPublication,
+  getPublicationPayload,
+  listPublications,
+  preparePublication,
+  revokeApproval,
+  sendPublication,
+} from "./publication.ts";
 import { approveSchemaCard, getApprovedCard } from "./schema.ts";
 import {
+  cancelTask,
   getArtifact,
   getTask,
   listArtifacts,
@@ -313,16 +324,197 @@ program
   });
 
 program
+  .command("cancel <taskId>")
+  .description("cancel an unstarted task (awaiting_confirmation or ready)")
+  .action((taskId: string) => {
+    try {
+      const wsPath = resolveWorkspacePath(program.opts().workspace);
+      const ws = openWorkspace(wsPath);
+      const task = cancelTask(ws, taskId);
+      console.log(JSON.stringify({ id: task.id, status: task.status }));
+    } catch (error) {
+      fail(error);
+    }
+  });
+
+program
   .command("session <taskIds...>")
   .description(
     "execute confirmed tasks sequentially on one persistent kernel (dataset reuse)",
   )
   .action(async (taskIds: string[]) => {
+    let wsRef: ReturnType<typeof openWorkspace> | undefined;
+    const onInterrupt = () => {
+      // SIGINT: stop the kernel first (sandboxed children die with it), then
+      // settle whatever task was running so no task is left in "running".
+      if (wsRef) {
+        for (const taskId of taskIds) {
+          try {
+            const task = getTask(wsRef, taskId);
+            if (task.status === "running") {
+              updateTask(wsRef, taskId, {
+                status: "failed",
+                error_summary: "cancelled by interrupt (kernel stopped)",
+              });
+            }
+          } catch {
+            // best-effort settle; exit matters more
+          }
+        }
+      }
+      process.exit(130);
+    };
+    process.on("SIGINT", onInterrupt);
     try {
       const wsPath = resolveWorkspacePath(program.opts().workspace);
       const ws = openWorkspace(wsPath);
+      wsRef = ws;
       const { results } = await runSession(ws, createCallerFromEnv(), taskIds);
       console.log(JSON.stringify(results));
+    } catch (error) {
+      fail(error);
+    } finally {
+      process.off("SIGINT", onInterrupt);
+    }
+  });
+
+const publish = program
+  .command("publish")
+  .description("mode-A trusted publication (§4.2/§6.7)");
+
+publish
+  .command("plan <alias>")
+  .description(
+    "write a publication plan draft for a dataset with an approved card",
+  )
+  .action((alias: string) => {
+    try {
+      const wsPath = resolveWorkspacePath(program.opts().workspace);
+      const ws = openWorkspace(wsPath);
+      const { card } = getApprovedCard(ws, alias);
+      const planPath = join(
+        wsPath,
+        "publications",
+        `plan-${Date.now().toString(36)}.yaml`,
+      );
+      writeFileSync(planPath, emitPlanDraft(alias, Object.keys(card.columns)));
+      console.log(JSON.stringify({ plan_path: planPath }));
+    } catch (error) {
+      fail(error);
+    }
+  });
+
+publish
+  .command("prepare <planPath>")
+  .description(
+    "validate the plan and recompute it via the trusted publisher (prepare or block)",
+  )
+  .action((planPath: string) => {
+    try {
+      const wsPath = resolveWorkspacePath(program.opts().workspace);
+      const ws = openWorkspace(wsPath);
+      const publication = preparePublication(ws, planPath);
+      console.log(JSON.stringify(publication));
+    } catch (error) {
+      fail(error);
+    }
+  });
+
+publish
+  .command("approve <publicationId>")
+  .description(
+    "bind the prepared payload: digest + data versions + target model + caps + expiry",
+  )
+  .action((publicationId: string) => {
+    try {
+      const wsPath = resolveWorkspacePath(program.opts().workspace);
+      const ws = openWorkspace(wsPath);
+      const approval = approvePublication(ws, publicationId);
+      console.log(JSON.stringify(approval));
+    } catch (error) {
+      fail(error);
+    }
+  });
+
+publish
+  .command("send <publicationId>")
+  .description(
+    "re-verify, recompute, and send the authorized aggregates (mode A)",
+  )
+  .action(async (publicationId: string) => {
+    try {
+      const wsPath = resolveWorkspacePath(program.opts().workspace);
+      const ws = openWorkspace(wsPath);
+      const result = await sendPublication(ws, publicationId);
+      if (result.reply !== undefined) {
+        console.log(result.reply);
+      }
+      console.log(
+        JSON.stringify({
+          status: result.status,
+          block_reason: result.block_reason,
+        }),
+      );
+    } catch (error) {
+      fail(error);
+    }
+  });
+
+publish
+  .command("revoke <publicationId>")
+  .description("revoke the active approval — future sends are blocked (P10)")
+  .action((publicationId: string) => {
+    try {
+      const wsPath = resolveWorkspacePath(program.opts().workspace);
+      const ws = openWorkspace(wsPath);
+      // R1: revoke ALL active approvals for this publication — a stale one
+      // must never survive to authorize sends.
+      const rows = ws.db
+        .prepare(
+          "SELECT id FROM approvals WHERE publication_id = ? AND revoked_at IS NULL",
+        )
+        .all(publicationId) as { id: string }[];
+      if (rows.length === 0) {
+        throw new UserError(`no active approval for ${publicationId}`);
+      }
+      for (const row of rows) {
+        revokeApproval(ws, row.id);
+      }
+      console.log(JSON.stringify({ revoked: rows.map((r) => r.id) }));
+    } catch (error) {
+      fail(error);
+    }
+  });
+
+program
+  .command("publication <publicationId>")
+  .description("show a publication's payload and status")
+  .action((publicationId: string) => {
+    try {
+      const wsPath = resolveWorkspacePath(program.opts().workspace);
+      const ws = openWorkspace(wsPath);
+      const publication = getPublication(ws, publicationId);
+      // R14: blocked/expired publications have no payload — show still works.
+      let payload: unknown = null;
+      try {
+        payload = JSON.parse(getPublicationPayload(ws, publicationId));
+      } catch {
+        payload = null;
+      }
+      console.log(JSON.stringify({ ...publication, payload }, null, 2));
+    } catch (error) {
+      fail(error);
+    }
+  });
+
+program
+  .command("publications")
+  .description("list publications and their status")
+  .action(() => {
+    try {
+      const wsPath = resolveWorkspacePath(program.opts().workspace);
+      const ws = openWorkspace(wsPath);
+      console.log(JSON.stringify(listPublications(ws)));
     } catch (error) {
       fail(error);
     }

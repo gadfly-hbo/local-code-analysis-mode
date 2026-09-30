@@ -30,5 +30,19 @@ TASK=$($CLI ask "net sales by category" --dataset sales | python3 -c 'import jso
 $CLI confirm "$TASK"
 $CLI run "$TASK"
 $CLI artifacts "$TASK"
+
+# Mode A: trusted publication of the same aggregates (needs target_model = $XANTHIL_LLM_MODEL)
+PLAN=$($CLI publish plan sales | python3 -c 'import json,sys; print(json.load(sys.stdin)["plan_path"])')
+python3 - "$PLAN" "$XANTHIL_LLM_MODEL" <<'PY'
+import sys, yaml
+path, model = sys.argv[1], sys.argv[2]
+plan = yaml.safe_load(open(path))
+plan["target_model"] = model
+plan["min_subjects"] = 1
+yaml.safe_dump(plan, open(path, "w"), sort_keys=False)
+PY
+PUB=$($CLI publish prepare "$PLAN" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["status"]=="prepared", d; print(d["id"])')
+$CLI publish approve "$PUB"
+$CLI publish send "$PUB"
 echo "--- audit (what the model actually received) ---"
 $CLI audit | python3 -c 'import json,sys; [print(c["id"], c["provider"], c["outcome"]) for c in json.load(sys.stdin)]'

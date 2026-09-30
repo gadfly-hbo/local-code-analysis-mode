@@ -16,7 +16,9 @@ _LEADING_ZERO_RE = r"0\d+"
 
 
 def profile_csv(path: str) -> dict:
-    df = pd.read_csv(path, dtype=str)
+    from worker.readers import read_any
+
+    df = read_any(path)
     columns = []
     for col in df.columns:
         series = df[col].dropna()
@@ -25,6 +27,11 @@ def profile_csv(path: str) -> dict:
             bool(series.str.fullmatch(_NUMBER_RE).all()) if has_values else False
         )
         all_integer = bool(series.str.fullmatch(_INTEGER_RE).all()) if has_values else False
+        # F02: date-like detection — full-scan parse rate >= 99% counts as date-like.
+        date_like = False
+        if has_values:
+            parsed = pd.to_datetime(series, errors="coerce")
+            date_like = bool(parsed.notna().mean() >= 0.99)
         inferred = "string"
         if all_numeric:
             inferred = "integer" if all_integer else "number"
@@ -38,14 +45,27 @@ def profile_csv(path: str) -> dict:
                     bool(series.str.fullmatch(_LEADING_ZERO_RE).any()) if has_values else False
                 ),
                 "all_numeric_strings": all_numeric,
+                "date_like": date_like,
             }
         )
-    return {
+    result = {
         "row_count": int(len(df)),
         "scanned": "full",
         "is_sampled": False,
         "columns": columns,
     }
+    # H1: xlsx workbooks may hide data in later sheets — surface that locally.
+    if str(path).lower().endswith(".xlsx"):
+        from worker.readers import read_xlsx
+
+        _, sheet_names = read_xlsx(path)
+        result["sheet_names"] = sheet_names
+        if len(sheet_names) > 1:
+            result["sheet_note"] = (
+                f"multiple sheets present ({', '.join(sheet_names)}); "
+                f"analysis uses the first ('{sheet_names[0]}')"
+            )
+    return result
 
 
 def schema_card_draft(alias: str, profile: dict) -> dict:

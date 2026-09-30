@@ -18,7 +18,7 @@ pnpm verify        # biome + tsc + vitest (host) + ruff + pytest (worker)
 
 ## 硬性约束（实现任何功能前必读）
 
-1. **隐私不变量**：模型上下文只能包含经用户确认的模式 S 信封（system 契约 / 用户目标 / 数据集别名 + ModelSchemaCard / 允许库列表 / 可选结构性诊断）。内核输出（stdout/stderr/异常值/结果）永不进入模型上下文。所有模型调用只经 `host/src/llm/` 出站网关，出站前逐字段断言信封。
+1. **隐私不变量**：模型上下文只能包含经用户确认的模式 S 信封（system 契约 / 用户目标 / 数据集别名 + ModelSchemaCard / 允许库列表 / 可选结构性诊断）或模式 A 信封（上述内容 + 一个经授权的可信发布块 + 授权引用——发布块仅由 `worker/publish.py` 按批准计划重算生成，发送前现场重算并比对授权摘要）。内核输出（stdout/stderr/异常值/结果）永不进入模型上下文。所有模型调用只经 `host/src/llm/` 出站网关，出站前逐字段断言信封。
 2. **AGENT-RUNTIME 合规**（全局标准 `~/.zcode/standards/AGENT-RUNTIME.md`）：工人模式；pi-ai 钉 0.86.1 且只经适配层引用；预算三线封顶（轮次/超时/墙钟）；审计可回放；夹具回放为测试基线。
 3. **隔离**：生成代码只能经 IsolationBackend 构造的受限进程执行；后端须先过逃逸自检才可跑真实数据；模型密钥只存在 Host 进程。
 4. **测试接缝**：隐私断言打在模型边界（FixtureProvider 捕获）；隔离断言打在 IsolationBackend；端到端走 CLI 子进程。不测内部实现细节。

@@ -229,6 +229,17 @@ export function updateTask(
     );
 }
 
+export function cancelTask(ws: Workspace, id: string): TaskRow {
+  const task = getTask(ws, id);
+  if (task.status !== "awaiting_confirmation" && task.status !== "ready") {
+    throw new UserError(
+      `task ${id} is "${task.status}" — only unstarted tasks can be cancelled`,
+    );
+  }
+  updateTask(ws, id, { status: "cancelled" });
+  return getTask(ws, id);
+}
+
 export function registerArtifacts(
   ws: Workspace,
   input: {

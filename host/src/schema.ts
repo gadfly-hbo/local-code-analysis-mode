@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import YAML from "yaml";
 import type { SchemaCard } from "./profiler.ts";
 import { UserError, type Workspace } from "./workspace.ts";
@@ -11,7 +12,14 @@ const ALLOWED_TYPES = new Set([
   "boolean",
   "date",
 ]);
-const CARD_KEYS = ["dataset", "grain", "columns", "unique_keys", "notes"];
+const CARD_KEYS = [
+  "dataset",
+  "grain",
+  "columns",
+  "unique_keys",
+  "notes",
+  "checks",
+];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -36,6 +44,9 @@ export function parseAndValidateCard(
     }
   }
   for (const key of CARD_KEYS) {
+    if (key === "checks") {
+      continue; // optional block (F02 machine checks)
+    }
     if (!(key in parsed)) {
       throw new UserError(`schema card is missing required key "${key}"`);
     }
@@ -84,6 +95,37 @@ export function parseAndValidateCard(
   ) {
     throw new UserError('schema card "notes" must be a list of strings');
   }
+  if (parsed.checks !== undefined) {
+    const checks = parsed.checks;
+    if (!isRecord(checks)) {
+      throw new UserError('schema card "checks" must be a mapping');
+    }
+    const columnNames = Object.keys(parsed.columns);
+    for (const listKey of ["date_fields", "amount_fields"]) {
+      const list = checks[listKey];
+      if (!Array.isArray(list) || list.some((f) => typeof f !== "string")) {
+        throw new UserError(
+          `checks "${listKey}" must be a list of column names`,
+        );
+      }
+      for (const field of list) {
+        if (!columnNames.includes(field)) {
+          throw new UserError(
+            `checks "${listKey}" references unknown column "${field}"`,
+          );
+        }
+      }
+    }
+    const precision = checks.precision;
+    if (
+      typeof precision !== "number" ||
+      !Number.isInteger(precision) ||
+      precision < 0 ||
+      precision > 6
+    ) {
+      throw new UserError('checks "precision" must be an integer 0-6');
+    }
+  }
   return parsed as unknown as SchemaCard;
 }
 
@@ -102,6 +144,15 @@ function canonicalCardJson(card: SchemaCard): string {
     columns,
     unique_keys: [...card.unique_keys].sort(),
     notes: [...card.notes],
+    ...(card.checks
+      ? {
+          checks: {
+            date_fields: [...card.checks.date_fields].sort(),
+            amount_fields: [...card.checks.amount_fields].sort(),
+            precision: card.checks.precision,
+          },
+        }
+      : {}),
   });
 }
 
@@ -123,6 +174,52 @@ export function approveSchemaCard(
     .get(alias) as { dataset_id: string; current_version: string } | undefined;
   if (!dataset) {
     throw new UserError(`unknown dataset alias "${alias}"`);
+  }
+
+  // F02 machine checks: cross-validate the card's checks block against the
+  // saved local profile (full-scan evidence), when a checks block is present.
+  if (card.checks) {
+    const profilePath = join(ws.root, "profiles", `${alias}.json`);
+    let profileColumns: Record<string, Record<string, unknown>> = {};
+    try {
+      const profile = JSON.parse(readFileSync(profilePath, "utf8")) as {
+        columns: {
+          name: string;
+          date_like?: boolean;
+          all_numeric_strings?: boolean;
+          inferred_type?: string;
+        }[];
+      };
+      profileColumns = Object.fromEntries(
+        profile.columns.map((c) => [
+          c.name,
+          c as unknown as Record<string, unknown>,
+        ]),
+      );
+    } catch {
+      throw new UserError(
+        `checks require a local profile — run "xanthil profile ${alias}" first`,
+      );
+    }
+    for (const field of card.checks.date_fields) {
+      if (!profileColumns[field]?.date_like) {
+        throw new UserError(
+          `checks.date_fields "${field}" is not date-like per the local profile`,
+        );
+      }
+    }
+    for (const field of card.checks.amount_fields) {
+      const col = profileColumns[field];
+      const numeric =
+        col?.all_numeric_strings ||
+        col?.inferred_type === "number" ||
+        col?.inferred_type === "integer";
+      if (!numeric) {
+        throw new UserError(
+          `checks.amount_fields "${field}" is not numeric per the local profile`,
+        );
+      }
+    }
   }
 
   const cardJson = canonicalCardJson(card);

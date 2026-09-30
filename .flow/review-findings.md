@@ -1,60 +1,65 @@
-# Review Findings（REVIEW 阶段，2026-09-30）
+# M2 Review Findings（独立子代理双轴审查，2026-09-30）
 
-> **降级模式声明**：dev-flow REVIEW 本应 spawn 独立 code-reviewer 子代理（fresh context）；本次因子代理使用限额不可用，按 SKILL 契约回退为 inline 审查（同一会话执行双轴审查）。证据核对已独立复跑：`pnpm verify` exit 0，24 host + 21 worker tests 与记录一致。此降级在 DONE 总结中再次披露。
+> Verdict: **FAIL**（2×P1 / 5×P2 / 9×P3；verify 复跑与记录一致，唯一数值偏差：报告写 40 项实测 41）。审查全文与覆盖确认见 .flow/review-findings-full.md（本文件为收敛用摘要，完整报告原文由子代理返回，已附于下方）。
 
-**结论：FAIL（存在 3 项 blocking 发现，进入修复周期）** —— 无 P0（未发现伪造证据、无凭据硬编码、验证命令复跑一致）。
+## 摘要表（用于 CONVERGE 分诊）
 
-## Spec 轴（对照 proposal.md / prd.md / tasks.md）
+| # | 级别 | 问题 | 处置 |
+|---|---|---|---|
+| 1 | P1 | 撤销可被重复批准绕过：approve 可插多条 active approval，revoke 只撤最新一条，send 命中残留授权照发（P10 破坏） | blocking → 修复 |
+| 2 | P1 | prepare 阶段策略校验缺两项：行数上限 200 未实现；维度值 ≤64/无换行推迟到 send（裸 Error 非 blocked，§11.4） | blocking → 修复 |
+| 3 | P2 | max_sends>1 产品面不可达（sent 早退），测试靠 SQL 造态 | blocking → 修复（send 语义允许多次，cap 管住）+ 测试改真实路径 |
+| 4 | P2 | §11.3 状态机仅 3/6 态落地且报告声称完整 | 修复（approve→awaiting_approval、过期→expired）+ 报告措辞 |
+| 5 | P2 | H1 未实现：xlsx 多表无提示、sheet 名未入画像 | blocking → 修复 |
+| 6 | P2 | tasks.md 未含 M2 七切片（流程产物缺口） | 核查 → 修复 |
+| 7 | P2 | `:memory>` 拼写错误产生垃圾 DB 文件 | 修复 |
+| 8 | P3 | suppressed_group_count 语义=组×指标（误导模型） | 修复（按组去重） |
+| 9 | P3 | assertEnvelopeIsModeA 不校验 datasets 子树 | 修复（复用卡校验） |
+| 10 | P3 | completeModeS/A 80 行复制 | 记录不改（重构属 REVIEW 范畴之外的味道项） |
+| 11 | P3 | 退出报告 40→41 | 修复 |
+| 12 | P3 | send 未字面重哈希数据文件 | 修复（补现算 sha256 比对） |
+| 13 | P3 | send 期重算崩溃抛裸错非 blocked | 修复 |
+| 14 | P3 | blocked 发布无法 show | 修复（payload 可选） |
+| 15 | P3 | AGENTS.md 不变量未含模式 A | 修复 |
+| 16 | P3 | 病态 xlsx 无 CLI 端到端 | 补一条 CLI 断言 |
+| U | — | UNVERIFIED：信封中 schema_card 未纳入授权绑定（重新 approve 卡片后 send 用新卡）；并发 sent_count 竞态 | 记录：卡片属用户批准内容，PRD H8 绑定四元组未含卡；列为 M3 议题 |
 
-### R1｜P1（blocking）沙箱读范围过宽，违反 §8.2「仅授权当前任务输入」
-- 证据：`host/src/isolation.ts` profile 为 `(allow default)` + 仅 `deny file-read-data (subpath "/Users")`；实测（本审查中复现）：沙箱内代码可读取 `/private/var/folders/**`（系统临时目录）中**其他进程**写入的文件（`OTHER-PROC-SECRET` 读出成功）。P05 自检探针只覆盖 HOME，未覆盖系统临时区。
-- 归属：spec（§8.2 文件控制面）+ implementation。
-- 复判准则：沙箱内读取系统临时目录中未授权文件必须失败（新增逃逸探针），且全量测试保持绿。
+## 子代理报告原文
 
-### R2｜P1（blocking）信封禁用键扫描误伤合法列名
-- 证据：`host/src/llm/envelope.ts` `scanBannedKeys` 深扫所有键名；实测：Schema 卡列名 `count`/`values`（合法、用户已批准的列）触发 `data-derived key "count"` 拒绝 → 含此类列的 CSV 无法走 ask 流程。
-- 归属：implementation（正确性缺陷）。
-- 复判准则：列名为 `count/values/min/max/sum` 的获准卡片通过信封断言；统计值注入 `schema_card` 顶层仍被拒绝。
+（完整原文见下方，含 file:line 证据、复判准则与覆盖确认；此处原样保留。）
 
-### R3｜P1（blocking）会话墙钟预算线定义未执行（AGENT-RUNTIME P4「三线封顶缺一禁上线」）
-- 证据：`host/src/llm/egress.ts` `DEFAULT_EGRESS_BUDGET.sessionWallClockMs: 600_000` 无任何引用点（grep 仅定义处）。轮次与单调用超时已生效，第三线缺失。
-- 归属：spec（G11 / 标准 P4）。
-- 复判准则：网关在同一实例生命周期内跨调用累计墙钟，超限拒绝并记审计 outcome=wall_clock。
-
-### R4｜P2 持久内核可写范围=整个 `.xanthil/runs` 树
-- 证据：`host/src/kernel.ts` `buildSeatbeltProfile(allowedReads, kernelDir, [join(ws.root, "runs")])`——任一任务的生成代码可写其他任务的 run 目录（本地影响，无外发通道，但超出任务输出目录的粒度）。
-- 归属：spec（§8.2 写入任务输出目录）/implementation 取舍。
-- 复判准则：内核执行仅可写当前任务 runDir + kernelDir（会话预建各任务 runDir 并精确放行）。
-
-### R5｜P2 F07「interrupt（用户可触发的取消）」未实现（超时/崩溃状态真实）
-- 证据：`worker/src/worker/kernel.py` 仅 execute/health；无取消命令。超时由 host call timeout 覆盖、崩溃由 exit 事件覆盖且任务状态诚实收敛。
-- 归属：PRD slice 7 验收部分达成。
-- 复判准则：README 已知限制中明示「取消=终止会话（M2 提供交互取消）」。
-
-### R6｜P2 F02 的时间边界/金额精度确认规则未在 profile/approve 强制（仅前导零有检测标记）
-- 归属：spec（F02 部分达成——列级类型修正已有，口径规则属用户确认语义，未做机检）。
-- 复判准则：README/tasks 披露该部分为 M2。
-
-## Standards 轴（对照仓库 AGENTS.md + smell 基线）
-
-- R7｜P3 模型可控的工件名未做标识符校验（`worker/src/worker/execute.py` `save_result`）：路径穿越被沙箱写范围兜住（kernel 模式下限 runs 树），但属卫生问题。→ 修复：名称白名单 `^[A-Za-z0-9_.-]+$` 且禁 `..`。
-- R8｜P3 `scripts/measure-mode-s.sh` 输出 `avg_rounds_placeholder` 字样未替换为真实均值语义标注。
-- 正面确认：无 Mysterious Name/投机泛型等显著 smell；双语言结构清晰；测试均为行为级断言、基准为独立手算字面值（非同义反复）；无秘钥进入代码/测试/日志。
 
 
 ---
 
-## 修复周期 1 处置（2026-09-30，review_cycles 0→1）
+## 修复周期 1 处置（2026-09-30，review_cycles 1→复检中）
 
-| 发现 | 处置 | 复判证据 |
+| # | 处置 | 复判证据 |
 |---|---|---|
-| R1 系统临时区可读 | **已修复**：profile 增加定向 `deny /private/var/folders`（其后放行 realpath 的工作区路径）；全枚举方案实测触发 `python -m` 静默 SIGABRT 故弃用（系统性根因记录在 isolation.ts 注释）。自检新增 system_read_probe（passed 纳入）；实测原泄露场景现 BLOCKED | `sandbox.test.ts` system_read_blocked 断言 + runIsolated 实测 BLOCKED |
-| R2 列名误伤 | **已修复**：columns 子树的键名豁免禁用键扫描（列名属获准 Schema）；统计注入卡顶层仍拒 | `egress.test.ts` "legitimate column names like count/min/sum…" + 原统计注入用例仍绿 |
-| R3 墙钟未执行 | **已修复**：网关实例级 sessionStartedAt，超限拒绝（三线齐备：轮次/单调用超时/墙钟） | `egress.test.ts` "session wall clock is the third enforced budget line" |
-| R4 内核可写范围 | **已修复**：KernelManager 按 taskIds 限定 run 根目录（不再放行整个 runs 树） | `session.test.ts` 全绿（内核执行在新范围内工作） |
-| R5 interrupt 缺失 | **披露**：README 已知限制明示（取消=终止会话，M2 交互取消） | README「已知限制」 |
-| R6 F02 口径机检缺失 | **披露**：README 已知限制明示 | README「已知限制」 |
-| R7 工件名未校验 | **已修复**：save_result/save_chart 标识符白名单 | worker 全测试绿 |
-| R8 脚本占位标注 | **已修复**：输出字段改名 model_call_rounds_total | scripts/measure-mode-s.sh |
+| R1 撤销绕过 | 已修：approve 隐式撤销旧活动授权（单活动不变式）+ revoke 撤销全部活动授权 | publication-send "P10…" 双 approve 回归 |
+| R2 prepare 校验 | 已修：行数>200 与维度值（≤64/无换行/非空）在 prepare 即 blocked | 同文件 "R2…" |
+| R3 max_sends | 已修：移除 sent 早退，二次真实发送命中 cap；测试零造态 | "P10…" 真实路径 |
+| R4 状态机 | 已修：awaiting_approval / expired 落库；报告措辞同步 | 代码 + m2-exit-report |
+| R5 H1 sheet 名 | 已修：profile 记录 sheet_names + 多表提示 | f01 "F01: xlsx…" 断言 |
+| R6 tasks.md | 已修：M2 版本恢复（含修复项清单） | .flow/tasks.md |
+| R7 :memory> | 已修：拼写 + 垃圾文件删除 | worker 全绿无新文件 |
+| R8 压制计数 | 已修：按组去重 | test_publish/ publication 系列断言=1 |
+| R9 信封 datasets | 已修：复用 assertEnvelopeIsModeS 全量校验 | P06 单元 base 含有效卡 |
+| R10 重复代码 | 记录不改（重构味道） | — |
+| R11 数字 | 已修：43（含新增回归） | m2-exit-report |
+| R12 文件哈希 | 已修：send 时现算 sha256 比对绑定版本（静默改文件被更早拦截） | P08 向量 (b) |
+| R13 重算崩溃 | 已修：try/catch → blocked + 原因 | 代码路径 |
+| R14 show | 已修：payload 可选 | CLI |
+| R15 AGENTS.md | 已修：不变量补模式 A 信封 | AGENTS.md |
+| R16 病态 CLI e2e | 已修：merged xlsx → profile 报错可懂 | f01 "F16…" |
+| UNVERIFIED ×2 | 转记录：M3 议题（信封卡片绑定范围；并发 sent_count） | tasks.md |
 
-修复后全量验证：`pnpm verify` exit 0（host 24+2 新增、worker 全绿）。
+---
+
+## 复检轮次记录
+
+- **复检 1（新实例）**：verdict FAIL——16 项中 13 确认修复；R14 补丁实际未落（批量替换静默失败，声明失实）+ 2 条新崩溃路径（N1 缺文件裸错、N2 超长名浪费批准）+ N3 处置失实 + N4 残留造态 + N5 形状不一致。
+- **复检 2（同实例续审）**：verdict FAIL——B1/N3 确认；N1/N2/N4/N5 声称已修但代码不存在（同一静默失败模式，本轮已申报根因：python 精确串替换 vs biome 格式化不匹配 → 改用 Edit 工具失败即报错 + grep 落地确认 + 逐项 CLI 实测）。
+- **复检 3（同实例终审）**：verdict **PASS**——六项准则经代码检查 + 独立 CLI 实测 + verify 复跑（exit 0，43+31）全部确认；无新发现。N1/N2/N5 实现位置与机制正确（N2 在 worker 重算后、preview 信任前拦截；N1 失败关闭；N5 无行为耦合）。残留 `sql(expires_at)` 为已接受的唯一时间注入且注释相符。
+
+**结论：修复周期收敛。16 原发现 + 5 复检新增全部闭合；R10 记录不改；UNVERIFIED×2 转 M3。**

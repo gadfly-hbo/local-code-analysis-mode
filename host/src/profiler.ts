@@ -20,12 +20,19 @@ export interface LocalProfile {
   columns: ColumnProfile[];
 }
 
+export interface CardChecks {
+  date_fields: string[];
+  amount_fields: string[];
+  precision: number;
+}
+
 export interface SchemaCard {
   dataset: string;
   grain: string;
   columns: Record<string, { type: string; semantics: string }>;
   unique_keys: string[];
   notes: string[];
+  checks?: CardChecks;
 }
 
 /** Run a one-shot worker module inside the isolation backend: JSON request on stdin, one JSON line back on stdout. */
@@ -51,6 +58,7 @@ export function runWorkerModule<T>(
     args: ["-m", module],
     allowedReads,
     writableDir: runDir,
+    extraWritableDirs: [join(ws.root, "tmp-mpl")],
     input: JSON.stringify(request),
   });
   if (result.status !== 0) {
