@@ -1,7 +1,10 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.6.0/schema.json",
   "files": {
-    "includes": ["host/**"]
+    "includes": [
+      "host/**",
+      "!host/public/**"
+    ]
   },
   "linter": {
     "enabled": true,

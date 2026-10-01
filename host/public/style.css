@@ -1,0 +1,263 @@
+:root {
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --ink: #1c2733;
+  --dim: #6b7a89;
+  --accent: #d96c2c;
+  --accent-ink: #fff;
+  --line: #e3e8ee;
+  --ok: #2e8b57;
+  --bad: #c0392b;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  font:
+    14px / 1.5 -apple-system,
+    "PingFang SC",
+    "Microsoft YaHei",
+    sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+#statusbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: #212a35;
+  color: #fff;
+}
+#statusbar .brand {
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+.badge {
+  background: #3a4a5c;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+}
+.badge.dim {
+  opacity: 0.75;
+}
+.link {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: #9fc2ff;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+main {
+  display: grid;
+  grid-template-columns: 320px 1fr 360px;
+  gap: 14px;
+  padding: 14px;
+  max-width: 1500px;
+  margin: 0 auto;
+}
+@media (max-width: 1100px) {
+  main {
+    grid-template-columns: 1fr;
+  }
+}
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px;
+  min-height: 200px;
+}
+.panel h2 {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+.panel h3 {
+  font-size: 13px;
+  margin: 10px 0 6px;
+  color: var(--dim);
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0;
+  align-items: center;
+}
+input,
+select {
+  flex: 1;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  font: inherit;
+  background: #fff;
+}
+input:focus,
+select:focus {
+  outline: 2px solid var(--accent);
+  border-color: transparent;
+}
+button {
+  padding: 7px 14px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: #fff;
+  cursor: pointer;
+  font: inherit;
+}
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+button.small {
+  padding: 3px 9px;
+  font-size: 12px;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.drop {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 70px;
+  border: 2px dashed var(--line);
+  border-radius: 10px;
+  color: var(--dim);
+  cursor: pointer;
+}
+.drop.dragover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.error {
+  color: var(--bad);
+  background: #fdf0ee;
+  border: 1px solid #f5c9c2;
+  border-radius: 7px;
+  padding: 8px 10px;
+  margin: 8px 0;
+  white-space: pre-wrap;
+}
+.note {
+  color: var(--dim);
+  font-size: 12px;
+  margin: 6px 0;
+}
+.hidden {
+  display: none !important;
+}
+
+.card {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 10px;
+  margin: 8px 0;
+  background: #fbfcfd;
+}
+.card .head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.card .head .grow {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.status {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: #eef1f5;
+  color: var(--dim);
+}
+.status.succeeded {
+  background: #e6f4ec;
+  color: var(--ok);
+}
+.status.failed,
+.status.blocked {
+  background: #fbeae7;
+  color: var(--bad);
+}
+.status.awaiting_confirmation,
+.status.awaiting_approval,
+.status.ready {
+  background: #fdf3e6;
+  color: #9a6b15;
+}
+
+pre.code {
+  background: #212a35;
+  color: #dbe7f3;
+  border-radius: 8px;
+  padding: 10px;
+  overflow: auto;
+  max-height: 240px;
+  font-size: 12px;
+}
+pre.reply {
+  background: #f4f7fa;
+  border-radius: 8px;
+  padding: 10px;
+  white-space: pre-wrap;
+  max-height: 240px;
+  overflow: auto;
+}
+
+table.data {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  margin: 6px 0;
+}
+table.data th,
+table.data td {
+  border: 1px solid var(--line);
+  padding: 5px 8px;
+  text-align: left;
+}
+table.data th {
+  background: #f0f3f6;
+}
+table.data tr.suppressed {
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+
+img.chart {
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 28, 38, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+.modal-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 18px;
+  width: min(640px, 92vw);
+  max-height: 86vh;
+  overflow: auto;
+}

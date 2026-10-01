@@ -91,18 +91,22 @@ cat <<PANEL
 PANEL
 
 if [ "$CHECK_ONLY" = "1" ]; then
-  (cd "$WS" && $X datasets)
-  echo "--check 完成(非交互)"
+  (cd "$WS" && $X datasets >/dev/null)
+  "$REPO/host/node_modules/.bin/tsx" "$REPO/host/src/cli.ts" --workspace "$WS/.xanthil" serve --port 0 --host 127.0.0.1 >/dev/null 2>&1 &
+  P=$!; sleep 2; kill $P 2>/dev/null
+  echo "--check 完成(非交互; serve 可启动)"
   exit 0
 fi
 
-# --- 交互 shell(带 xanthil 函数; 凭据与函数随 shell 存续) ---
-cd "$WS"
-export XANTHIL_REPO="$REPO"
-bash -i <<< '
-xanthil() { "$XANTHIL_REPO/host/node_modules/.bin/tsx" "$XANTHIL_REPO/host/src/cli.ts" "$@"; }
-export XANTHIL_LLM_API_KEY XANTHIL_LLM_BASE_URL XANTHIL_LLM_MODEL XANTHIL_REPO
-cd workspace 2>/dev/null || true
-echo "(已进入交互 shell; xanthil 命令可用, 当前目录=工作区)"
-exec bash -i
-'
+# --- 启动 Web 工作台(本机服务 + 浏览器) ---
+echo "[启动] 工作台 http://127.0.0.1:4170 (Ctrl+C 退出)"
+"$REPO/host/node_modules/.bin/tsx" "$REPO/host/src/cli.ts" --workspace "$WS/.xanthil" serve --port 4170 &
+SERVER_PID=$!
+cleanup() { kill "$SERVER_PID" 2>/dev/null || true; }
+trap cleanup EXIT
+for i in $(seq 1 30); do
+  if curl -s -o /dev/null http://127.0.0.1:4170/api/state; then break; fi
+  sleep 1
+done
+open http://127.0.0.1:4170
+wait "$SERVER_PID"

@@ -640,4 +640,32 @@ policyCmd
     }
   });
 
+program
+  .command("serve")
+  .description("start the local web workbench (127.0.0.1, browser-ready)")
+  .option("--port <port>", "listen port", "4170")
+  .option(
+    "--host <host>",
+    "bind host (default 127.0.0.1 — local only)",
+    "127.0.0.1",
+  )
+  .action(async (opts: { port: string; host: string }) => {
+    try {
+      const wsPath = resolveWorkspacePath(program.opts().workspace);
+      const { startWorkbenchServer } = await import("./server.ts");
+      const { server, url } = startWorkbenchServer({
+        workspaceDir: wsPath,
+        port: Number(opts.port),
+        host: opts.host,
+      });
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(Number(opts.port), opts.host, resolve);
+      });
+      console.log(`workbench: ${url} (Ctrl+C 退出)`);
+    } catch (error) {
+      fail(error);
+    }
+  });
+
 program.parse(process.argv);

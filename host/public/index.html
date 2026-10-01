@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Xanthil 本地分析工作台</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<header id="statusbar">
+  <span class="brand">Xanthil 本地分析工作台</span>
+  <span id="mode-badge" class="badge">模式 S · 结构编程</span>
+  <span id="model-badge" class="badge dim">模型：…</span>
+  <span id="sandbox-badge" class="badge dim">沙箱：…</span>
+  <button id="audit-btn" class="link">出站记录</button>
+</header>
+
+<main>
+  <section id="data-panel" class="panel">
+    <h2>数据</h2>
+    <label class="drop" id="drop-zone">
+      <input type="file" id="file-input" accept=".csv,.xlsx,.parquet" hidden />
+      <span>点击或拖入 CSV / XLSX / Parquet</span>
+    </label>
+    <div id="alias-row" class="row hidden">
+      <input id="alias-input" placeholder="别名（如 sales）" />
+      <button id="upload-btn" class="primary">登记并分析结构</button>
+    </div>
+    <div id="upload-error" class="error hidden"></div>
+    <div id="dataset-list"></div>
+    <div id="schema-editor" class="hidden">
+      <h3>确认表结构与口径</h3>
+      <label>一行代表什么（grain）
+        <input id="grain-input" placeholder="例如：一行 = 订单商品行" />
+      </label>
+      <table id="columns-table"><thead></thead><tbody></tbody></table>
+      <div id="sheet-note" class="note hidden"></div>
+      <button id="approve-schema-btn" class="primary">批准口径</button>
+    </div>
+  </section>
+
+  <section id="analysis-panel" class="panel">
+    <h2>分析</h2>
+    <div id="ask-row" class="row">
+      <input id="goal-input" placeholder="用自然语言描述分析目标…" />
+      <button id="ask-btn" class="primary">生成计划</button>
+    </div>
+    <div class="row">
+      <select id="skill-select"><option value="">内置技能（零模型调用）…</option></select>
+      <button id="skill-run-btn">运行技能</button>
+    </div>
+    <div id="task-list"></div>
+  </section>
+
+  <section id="publish-panel" class="panel">
+    <h2>发布（模式 A · 授权聚合解读）</h2>
+    <button id="publish-new-btn">新建发布计划</button>
+    <div id="publish-form" class="hidden"></div>
+    <div id="publication-list"></div>
+  </section>
+</main>
+
+<div id="modal" class="modal hidden"><div class="modal-card" id="modal-card"></div></div>
+<script type="module" src="/app.js"></script>
+</body>
+</html>

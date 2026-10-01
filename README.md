@@ -13,6 +13,10 @@
 
 ## 快速开始
 
+**双击 `启动本地分析.command`** —— 自动装依赖、建工作区（含演示数据）、注入本机 GLM 凭据并打开浏览器工作台（`http://127.0.0.1:4170`）：上传 CSV/XLSX/Parquet → 表格化确认口径 → 输入问题 → **确认并运行** → 查看结果/图表/导出；右侧发布区做模式 A 授权聚合解读；顶栏随时核对模型实际收到的内容。也可手动起服务：`xanthil serve --port 4170`（仅绑定 127.0.0.1）。
+
+以下为 CLI 等价流程（自动化/脚本场景）：
+
 ```bash
 pnpm install && (cd worker && uv sync)   # 安装依赖（TS host + Python worker）
 pnpm verify                               # biome + tsc + vitest + ruff + pytest

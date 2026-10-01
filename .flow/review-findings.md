@@ -1,16 +1,17 @@
-# M4 Review Findings（独立子代理审查 + 修复周期，2026-09-30）
+# M5 Review Findings（独立子代理审查 + 修复周期，2026-10-01）
 
-## 首轮（verdict FAIL：2×P0 + 2×P1 + 4×P2 + 4×P3）
+## 首轮（verdict FAIL：P0 + 4×P1 + 5×建议）
 
 | # | 级别 | 问题 | 处置 |
 |---|---|---|---|
-| P0-1 | E1 不可达 | ratio 宿主门缺失（AGGS 无 ratio 且强制 field；worker 测试绕过宿主门；退出报告失实） | **修复**：AGGS+ratio 分支（numerator/denominator 卡内校验，免 field）；新增经 `publish prepare` 的 ratio e2e（37.5 手算值） |
-| P0-2 | 证据失实 | verify 记录 31 worker vs 实测 33；PRD「零修改」表述 | **修复**：如实记录 51+33；PRD 改「断言语义零削弱」并注明 bad_agg 用例必要更新 |
-| P1-1 | fail-open | 损坏 policy.yaml 使 require_checks 静默失效（schema.ts 内联复制读取逻辑） | **修复**：loadPolicyStrict 统一（存在但坏 → 拒绝且报错可读），两个强制点均 fail-closed |
-| P1-2 | 契约缺角 | policy_version 未记入 publications 行（PRD/§6.9/§10.3） | **修复**：列迁移 + 两条插入路径写入 |
-| P2 | 确定性断言空 / lazy-env 审计名 / policy set 缺失 | | **修复**：断言措辞如实、name getter 透传、`policy set <json>` 落地 |
-| P3 | 错误信息过期 agg 列表 / 测试死代码 / DB-返回不一致 / skills 接线重复 / 未转义内插 | 错误信息已随 P0-1 更新；其余记录不改（非阻断） |
-| UNVERIFIED | prepare→send 之间收紧策略不阻断已批发送（规格只定两强制点——确认为有意设计：授权四元组绑定即 §5.3 语义）；month 非字典序对齐 | 记录：send 侧强制点列为 M5 候选；groupby 行序依赖已由手算基准覆盖当前数据 |
+| P0 | UI 断裂 | 结果渲染进游离节点（getElementById 误传 CSS 选择器）；succeeded 任务从不拉取工件 | **修复**：querySelector + succeeded 自动 loadTaskArtifacts；实测：demo 工作台 skill 任务 confirm→run→工件表格/导出按钮齐 |
+| P1 | 盲签 | GET /api/tasks/:id 路由缺失，确认前看不到计划/代码 | **修复**：路由补齐（实测 has spec=True） |
+| P1 | 越权写 | /api/schema 的 alias 未校验即拼路径（可出工作区）；无 content-type 校验 | **修复**：ALIAS_PATTERN 前置校验（实测 bad-alias 400）+ parseJsonBody 统一入口 |
+| P1 | 任意路径 | export 接受任意 outPath；planPath 路由为死攻击面（文件探测 oracle） | **修复**：export 限定 workspace/exports/；planPath 路由删除（UI 走 /object） |
+| P1 | 启动器错配 | serve 未指定 --workspace → 浏览器落在仓库根空 .xanthil | **修复**：--workspace "$WS/.xanthil"（CLI 约定为 .xanthil 目录本身）；根目录垃圾清除 + gitignore |
+| P2 | — | JSON 体错误 500、沙箱自检每 5s 起子进程、schema 编辑器不产 checks（require_checks 策略下必 400）、授权弹窗缺内容摘要、测试名不符 | **修复**：4xx 化；60s 缓存；编辑器按语义/列名自动产 checks；测试名如实（弹窗摘要维持卡片内指标表——布局取舍，未逐字复述） |
+| P3 | — | skill-run 绕 facade 复刻逻辑；CURRENT_MODEL 模块全局；canary 缺本地存在断言；50MB 实为 36MB；CSV 引号列错分 | **修复**：facade 化；canary 双向断言（run.log 含标记）；报告口径改 36MB；其余记录（CURRENT_MODEL 单实例语义、引号列展示） |
 
-**复检轮 2**：FAIL（收窄 2 项）——ALTER 迁移缺失（旧工作区 prepare 硬崩）+ `policy set` 未实现但三处声明已修（批量替换第五次静默失败）。
-**复检轮 3（终审）**：**PASS（APPROVE_WITH_COMMENTS）**——ALTER 迁移与 policy set 实证修复（旧 11 列表重建后 blocked/prepared 双路径插入携带 policy_version；set→show→floor 阻断链）；52+33 与重跑一致；残留 P3（policy set 值形态校验、测试死代码、goal 级确定性断言等）披露不改或已顺手闭合。
+## 复检（终审）
+
+修复后实测链（非夹具）：launcher 一键启动 → 工作台含 demo 数据集 + GLM-5.3-Flash + 沙箱 passed → skill 任务 detail/confirm/run/工件（月度 2026-07 280.5/3、2026-08 300.0/3，手算一致）→ `open` 浏览器触发。`pnpm verify` exit 0（62+33）。浏览器实操（点击/渲染）为 UNVERIFIED——API 接缝断言 + 源码级修复复检覆盖行为面，如实声明。
