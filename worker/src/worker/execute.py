@@ -89,7 +89,33 @@ def classify_error(exc: BaseException) -> dict:
         return {"kind": "missing_lib", "detail": exc.name or "unknown"}
     if isinstance(exc, KeyError):
         return {"kind": "keyerror", "detail": str(exc.args[0]) if exc.args else ""}
+    if isinstance(exc, NameError):
+        # Bare dataset/column references (e.g. using `sales` instead of
+        # ctx.datasets['sales']) are structural — name only, never a value.
+        return {"kind": "nameerror", "detail": str(getattr(exc, "name", "") or "")}
     return {"kind": "runtime", "detail": type(exc).__name__}
+
+
+def _auto_capture_last_expression(code: str, ctx: "Ctx", capture: io.StringIO) -> None:
+    """Jupyter-style tails: if the last statement is a bare expression that
+    evaluates to a DataFrame and nothing was saved, save it as 'result'."""
+    if ctx.manifest:
+        return
+    import ast
+
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return
+    if not tree.body or not isinstance(tree.body[-1], ast.Expr):
+        return
+    last = ast.Expression(tree.body[-1].value)  # type: ignore[arg-type]
+    tree.body = tree.body[:-1]
+    scope = {"ctx": ctx}
+    exec(compile(tree, "<analysis-code>", "exec"), scope)  # noqa: S102
+    value = eval(compile(last, "<analysis-code>", "eval"), scope)  # noqa: S307
+    if isinstance(value, pd.DataFrame):
+        ctx.save_result("result", value)
 
 
 def execute_code(code: str, datasets: dict[str, str], artifacts_dir: Path) -> dict:
@@ -102,6 +128,7 @@ def execute_code(code: str, datasets: dict[str, str], artifacts_dir: Path) -> di
             contextlib.redirect_stderr(capture),
         ):
             exec(compile(code, "<analysis-code>", "exec"), {"ctx": ctx})  # noqa: S102
+            _auto_capture_last_expression(code, ctx, capture)
     except BaseException as exc:  # noqa: BLE001 - classified below; values never travel
         error = classify_error(exc)
         traceback.print_exc(file=capture)

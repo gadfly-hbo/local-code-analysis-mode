@@ -62,18 +62,64 @@ const ARTIFACTS_MIGRATION = `CREATE TABLE IF NOT EXISTS artifacts (
 const SPEC_KEYS = new Set(["goal", "assumptions", "code", "validation_checks"]);
 
 export function parseTaskSpec(text: string): AnalysisTaskSpec {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    // Models sometimes wrap JSON in fences; try the first {...} block.
+  const tryParse = (candidate: string): unknown | undefined => {
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      return undefined;
+    }
+  };
+  let parsed = tryParse(text);
+  if (parsed === undefined) {
+    // a) fenced ```json block anywhere in the reply (models wrap prose around).
+    const jsonFence = text.match(/```json\s*([\s\S]*?)```/i);
+    if (jsonFence?.[1]) {
+      parsed = tryParse(jsonFence[1].trim());
+    }
+  }
+  if (parsed === undefined) {
+    // b) Python-fence fallback BEFORE the brace span: models answer with a
+    // code block instead of the JSON contract. Take the first block with an
+    // explicit disclosure; the confirmation gate and sandbox still apply.
+    const pyFences = [...text.matchAll(/```(?:python|py)\s*([\s\S]*?)```/gi)];
+    if (pyFences.length === 1 && pyFences[0]?.[1]) {
+      parsed = {
+        goal: "(extracted from the model's code block)",
+        assumptions: [
+          "model did not state assumptions — review the code before confirming",
+        ],
+        code: (pyFences[0][1] as string).trim(),
+        validation_checks: [],
+      };
+    } else if (pyFences.length > 1) {
+      // Models often append an "equivalent DuckDB/SQL" alternative after the
+      // primary solution. Take the FIRST block (the primary one, which the
+      // system prompt directs at ctx) and disclose the choice.
+      parsed = {
+        goal: "(extracted from the model's first code block)",
+        assumptions: [
+          `model returned ${pyFences.length} code blocks; the first was taken — review the code before confirming`,
+        ],
+        code: ((pyFences[0] as RegExpMatchArray | undefined)?.[1] ?? "").trim(),
+        validation_checks: [],
+      };
+    }
+  }
+  if (parsed === undefined) {
+    // c) outermost {...} span — ONLY if it looks like a spec (has a "code"
+    // key). Python dict literals like {"net_sales": 2} parse as valid JSON and
+    // must not win over the fence fallback above.
     const start = text.indexOf("{");
     const end = text.lastIndexOf("}");
     if (start >= 0 && end > start) {
-      try {
-        parsed = JSON.parse(text.slice(start, end + 1));
-      } catch {
-        parsed = undefined;
+      const candidate = tryParse(text.slice(start, end + 1));
+      if (
+        typeof candidate === "object" &&
+        candidate !== null &&
+        !Array.isArray(candidate) &&
+        "code" in (candidate as Record<string, unknown>)
+      ) {
+        parsed = candidate;
       }
     }
   }
@@ -82,10 +128,12 @@ export function parseTaskSpec(text: string): AnalysisTaskSpec {
       `model did not return a JSON AnalysisTaskSpec: ${text.slice(0, 200)}`,
     );
   }
-  const obj = parsed as Record<string, unknown>;
+  const obj = { ...(parsed as Record<string, unknown>) };
+  // Unknown keys are DROPPED, not fatal: models attach example-output keys;
+  // the four contract keys are what matter downstream.
   for (const key of Object.keys(obj)) {
     if (!SPEC_KEYS.has(key)) {
-      throw new UserError(`AnalysisTaskSpec has unexpected key "${key}"`);
+      delete obj[key];
     }
   }
   for (const key of SPEC_KEYS) {

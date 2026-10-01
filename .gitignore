@@ -11,3 +11,4 @@ __pycache__/
 .flow/state.json
 
 .DS_Store
+workspace/

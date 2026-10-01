@@ -21,7 +21,7 @@ import { askTask, runSession, runTask } from "../orchestrator.ts";
 import { profileDataset } from "../profiler.ts";
 import { listSkills, runSkill } from "../skills.ts";
 
-function skillsAlias(name: string, params: Record<string, string>): string {
+function skillsAlias(_name: string, params: Record<string, string>): string {
   const alias = params.dataset ?? params.alias;
   if (!alias) throw new UserError("skills.run requires params.dataset");
   return alias;

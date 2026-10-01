@@ -83,6 +83,35 @@ function classifyIntoDiagnostic(
   if (error.kind === "missing_lib") {
     return { kind: "missing_lib", detail: error.detail ?? "unknown module" };
   }
+  if (
+    error.kind === "nameerror" &&
+    typeof error.detail === "string" &&
+    error.detail
+  ) {
+    // Models sometimes reference datasets (or columns) as bare names instead
+    // of via ctx — structural, fixable in one round.
+    if (task.datasets.includes(error.detail)) {
+      return {
+        kind: "unknown_dataset",
+        detail: `bare name "${error.detail}" is not defined — access datasets via ctx.datasets["${error.detail}"]`,
+      };
+    }
+    for (const alias of task.datasets) {
+      const { card } = getApprovedCard(ws, alias);
+      if (Object.keys(card.columns).includes(error.detail)) {
+        return {
+          kind: "unknown_field",
+          detail: `bare name "${error.detail}" is a column, not a variable — use the DataFrame holding it`,
+        };
+      }
+    }
+    // Any other bare name is still a structural slip from the model's own
+    // code (never a data value) — give it one bounded fix round.
+    return {
+      kind: "syntax",
+      detail: `name "${error.detail}" is not defined — access datasets via ctx.datasets["<alias>"] and assign variables before use`,
+    };
+  }
   if (error.kind === "keyerror" && typeof error.detail === "string") {
     if (task.datasets.includes(error.detail)) {
       const known = listDatasets(ws)

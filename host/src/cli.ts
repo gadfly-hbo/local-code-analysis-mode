@@ -6,7 +6,6 @@ import YAML from "yaml";
 import { getDatasetByAlias, listDatasets, registerDataset } from "./catalog.ts";
 import { runSandboxSelfCheck } from "./isolation.ts";
 import { listModelCalls } from "./llm/egress.ts";
-import { createCallerFromEnv } from "./llm/index.ts";
 import { askTask, runSession, runTask } from "./orchestrator.ts";
 import { loadPolicy, policyVersion } from "./policy.ts";
 import { profileDataset } from "./profiler.ts";

@@ -28,7 +28,7 @@ const ANALYSIS = [
 
 function makeCore(cwd: string, turns: string[]) {
   const fixture = join(cwd, "fixture.jsonl");
-  writeFileSync(fixture, turns.join("\n") + "\n");
+  writeFileSync(fixture, `${turns.join("\n")}\n`);
   return createXanthilCore({
     workspaceDir: join(cwd, ".xanthil"),
     model: { kind: "fixture", fixturePath: fixture },
